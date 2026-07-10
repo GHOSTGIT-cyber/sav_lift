@@ -5,6 +5,8 @@ namespace App\Filament\Resources\Cas;
 use App\Filament\Resources\Cas\Pages\CreateCas;
 use App\Filament\Resources\Cas\Pages\EditCas;
 use App\Filament\Resources\Cas\Pages\ListCas;
+use App\Filament\Resources\Cas\RelationManagers\MessagesRelationManager;
+use App\Filament\Resources\Cas\RelationManagers\PieceJointesRelationManager;
 use App\Filament\Resources\Cas\Schemas\CasForm;
 use App\Filament\Resources\Cas\Tables\CasTable;
 use App\Models\Cas;
@@ -41,7 +43,8 @@ class CasResource extends Resource
     public static function getRelations(): array
     {
         return [
-            //
+            MessagesRelationManager::class,
+            PieceJointesRelationManager::class,
         ];
     }
 

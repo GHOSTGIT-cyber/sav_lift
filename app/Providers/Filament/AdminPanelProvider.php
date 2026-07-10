@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Controllers\PieceJointeController;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -17,6 +18,7 @@ use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Route;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -50,6 +52,19 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
                 FilamentInfoWidget::class,
             ])
+            // Déclarées ici plutôt que dans routes/web.php : elles héritent
+            // ainsi de l'authentification du panneau. Les pièces jointes sont
+            // des données clients, elles ne sortent que pour un utilisateur
+            // connecté. Noms générés : filament.admin.pieces-jointes.*
+            ->authenticatedRoutes(function (): void {
+                Route::controller(PieceJointeController::class)
+                    ->prefix('pieces-jointes/{pieceJointe}')
+                    ->name('pieces-jointes.')
+                    ->group(function (): void {
+                        Route::get('telecharger', 'telecharger')->name('telecharger');
+                        Route::get('apercu', 'apercu')->name('apercu');
+                    });
+            })
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

@@ -35,6 +35,20 @@ class CasTable
                     ->label('Statut')
                     ->badge()
                     ->sortable(),
+                TextColumn::make('messages_count')
+                    ->label('Messages')
+                    ->counts('messages')
+                    ->badge()
+                    ->color('gray')
+                    ->alignCenter(),
+                // La date du dernier email du fil, et non celle de la dernière
+                // édition du dossier : c'est le client qui rythme le SAV. Le
+                // nom de la colonne est celui que `withMax` donne à l'attribut.
+                TextColumn::make('messages_max_received_at')
+                    ->label('Dernière activité')
+                    ->max('messages', 'received_at')
+                    ->dateTime('d/m/Y H:i')
+                    ->placeholder('—'),
                 TextColumn::make('created_at')
                     ->label('Créé le')
                     ->dateTime('d/m/Y H:i')
