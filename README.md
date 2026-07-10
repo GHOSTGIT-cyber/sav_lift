@@ -78,9 +78,21 @@ Rien de tout ça n'est dans le dépôt : `.env` est volontairement ignoré par g
 | `ADMIN_EMAIL` | *votre e-mail* | identifiant de connexion à `/admin` |
 | `ADMIN_PASSWORD` | *un vrai mot de passe* | réappliqué à chaque déploiement |
 | `DB_CONNECTION` | `sqlite` | |
+| `SESSION_SECURE_COOKIE` | `true` | recommandé : le cookie de session ne partira jamais en clair |
 
 `ADMIN_EMAIL` / `ADMIN_PASSWORD` sont relus à **chaque** démarrage : changer la
 variable puis redéployer suffit à changer le mot de passe.
+
+### Le piège du HTTPS → « la page s'affiche mais la connexion ne fait rien »
+
+Le proxy termine le TLS et parle en clair au conteneur, en annonçant
+`X-Forwarded-Proto: https`. Sans `trustProxies()` (voir
+[`bootstrap/app.php`](bootstrap/app.php)), Laravel se croit en clair et génère
+des `<script src="http://…">` dans une page servie en `https://` : le
+navigateur les bloque (*mixed content*), Livewire ne démarre jamais, et le
+bouton « Connexion » reste inerte — sans le moindre message d'erreur.
+
+C'est verrouillé par [`tests/Feature/ProxyHttpsTest.php`](tests/Feature/ProxyHttpsTest.php).
 
 ### ⚠️ La base est éphémère en Bloc 0
 

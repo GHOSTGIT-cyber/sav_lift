@@ -12,7 +12,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // Le conteneur n'est joignable qu'à travers le proxy de Coolify.
+        // Sans cette ligne, Laravel ignore `X-Forwarded-Proto: https` : il se
+        // croit en clair et génère des URLs `http://` dans une page servie en
+        // `https://`. Le navigateur bloque alors les scripts (mixed content),
+        // Livewire ne démarre pas, et le formulaire de connexion reste inerte.
+        $middleware->trustProxies(at: '*');
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
