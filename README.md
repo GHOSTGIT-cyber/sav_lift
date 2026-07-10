@@ -14,14 +14,21 @@ Pas encore d'IA, ni de brouillon vers Lift (blocs suivants).
 |---|---|
 | Framework | Laravel 13 (PHP ≥ 8.3) |
 | Admin | Filament 5, panneau sur `/admin` |
-| Base | SQLite |
+| Base | PostgreSQL (managé par Coolify) ; SQLite in-memory pour les tests |
 | Hébergement | Coolify (Docker), image `serversideup/php:8.4-frankenphp` |
 
 ## Démarrer en local
 
+`.env.example` pointe une base **PostgreSQL** (`sav` / `sav` sur
+`127.0.0.1:5432`) — la même qu'en prod. Le plus simple est d'en lancer une avec
+Docker :
+
 ```bash
+docker run -d --name sav-pg -e POSTGRES_DB=sav -e POSTGRES_USER=sav \
+  -e POSTGRES_PASSWORD=sav -p 5432:5432 postgres:16-alpine
+
 composer install
-cp .env.example .env
+cp .env.example .env      # puis renseigner DB_PASSWORD=sav
 php artisan key:generate
 php artisan migrate --seed
 php artisan serve
@@ -35,8 +42,12 @@ publiés dans `public/` par `composer install`.
 
 ### Tests
 
+Les tests tournent sur **SQLite in-memory** (voir `phpunit.xml`) : aucun
+Postgres requis pour `php artisan test`. Les migrations sont dialect-neutres,
+donc ce qui passe sur SQLite passe sur Postgres.
+
 ```bash
-php artisan test      # 98 tests
+php artisan test      # 110 tests
 vendor/bin/pint       # style de code
 ```
 
@@ -120,8 +131,12 @@ Rien de tout ça n'est dans le dépôt : `.env` est volontairement ignoré par g
 | `ADMIN_NAME` | `Admin SAV` | |
 | `ADMIN_EMAIL` | *votre e-mail* | identifiant de connexion à `/admin` |
 | `ADMIN_PASSWORD` | *un vrai mot de passe* | réappliqué à chaque déploiement |
-| `DB_CONNECTION` | `sqlite` | |
-| `DB_DATABASE` | `/var/www/html/storage/app/database.sqlite` | **chemin absolu, sur le volume** (voir ci-dessous) |
+| `DB_CONNECTION` | `pgsql` | |
+| `DB_HOST` | *hôte du service Postgres Coolify* | nom interne de la ressource Postgres |
+| `DB_PORT` | `5432` | |
+| `DB_DATABASE` | `sav` | |
+| `DB_USERNAME` | `sav` | |
+| `DB_PASSWORD` | *le mot de passe Postgres* | |
 | `FILESYSTEM_DISK` | `local` | |
 | `SESSION_SECURE_COOKIE` | `true` | recommandé : le cookie de session ne partira jamais en clair |
 
@@ -148,24 +163,30 @@ Plus, pour le Bloc 1, la boîte mail :
 `ADMIN_EMAIL` / `ADMIN_PASSWORD` sont relus à **chaque** démarrage : changer la
 variable puis redéployer suffit à changer le mot de passe.
 
-### Le volume persistant (à faire au déploiement du Bloc 1)
+### La base PostgreSQL
 
-1. Monter un volume sur **`/var/www/html/storage/app`** — il contiendra le
-   SQLite **et** les pièces jointes.
-   ⚠️ Sur `storage/app`, **pas** sur `storage` entier : sinon `framework/`
-   disparaît et l'app ne démarre plus.
-2. Créer le fichier une fois (onglet *Command*) :
-   `touch /var/www/html/storage/app/database.sqlite`
-   Si c'est un *permission denied* : le volume neuf appartient à `root`, alors
-   que l'image tourne en `www-data`. Depuis un shell root du conteneur,
-   `chown -R www-data:www-data /var/www/html/storage/app`.
-3. Pointer `DB_DATABASE` dessus (tableau ci-dessus), et lancer les migrations
-   en *post-deployment command* : `php artisan migrate --force`.
+C'est une **ressource Coolify dédiée** (« New Resource → PostgreSQL »), pas un
+fichier dans l'image. On crée la base, on récupère l'hôte interne / la base /
+l'utilisateur / le mot de passe, et on renseigne les variables `DB_*`
+ci-dessus. Le schéma est appliqué tout seul au démarrage : l'automation
+serversideup lance `migrate --force --seed` (idempotent). Rien à *touch*,
+aucune migration de données — la prod part de zéro.
+
+### Le volume persistant (pièces jointes)
+
+Les fichiers joints, eux, restent sur le disque local et ont besoin d'un
+volume. Monter un **bind mount sur `/var/www/html/storage/app`**.
+⚠️ Sur `storage/app`, **pas** sur `storage` entier : sinon `framework/`
+disparaît et l'app ne démarre plus. Si un *permission denied* apparaît, le
+volume neuf appartient à `root` alors que l'image tourne en `www-data` — depuis
+un shell root du conteneur : `chown -R www-data:www-data /var/www/html/storage/app`.
 
 ### Le conteneur planificateur
 
 La relève IMAP tourne dans une **deuxième ressource Coolify** : même dépôt,
-même image, **même volume monté**, mêmes variables d'environnement, et
+même image, **mêmes variables d'environnement** (dont les `DB_*` : il écrit
+dans la même base Postgres), **même volume `storage/app` monté** (il stocke les
+pièces jointes), et
 
 - **start command** : `php artisan schedule:work`
 - **aucun domaine public**
@@ -184,12 +205,13 @@ bouton « Connexion » reste inerte — sans le moindre message d'erreur.
 
 C'est verrouillé par [`tests/Feature/ProxyHttpsTest.php`](tests/Feature/ProxyHttpsTest.php).
 
-### ⚠️ Sans volume monté, la base est éphémère
+### ⚠️ Sans volume monté, les pièces jointes sont éphémères
 
-Le `Dockerfile` crée `database/database.sqlite` au build : ce fichier-là est
-perdu à chaque redéploiement. Tant que le volume et `DB_DATABASE` ne sont pas
-en place (voir plus haut), **les dossiers SAV et les pièces jointes
-disparaissent au déploiement suivant**.
+La base Postgres est managée : elle survit d'elle-même aux déploiements. En
+revanche les **pièces jointes** vivent dans le conteneur : tant que le bind
+mount sur `storage/app` n'est pas en place (voir plus haut), **elles
+disparaissent au déploiement suivant** — les dossiers, eux, restent en base
+mais pointeront vers des fichiers absents.
 
 ## Données clients et RGPD
 

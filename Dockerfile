@@ -1,10 +1,13 @@
 # Outil SAV Lift Foils — image Coolify (Laravel + Filament)
 FROM serversideup/php:8.4-frankenphp
 
-# Extensions PHP : SQLite + i18n + calculs + images.
-# (pdo_sqlite et sqlite3 sont déjà dans l'image ; intl, bcmath et exif non.)
+# Extensions PHP : PostgreSQL (prod) + i18n + calculs + images.
+# pdo_sqlite reste installé : la suite de tests tourne sur SQLite in-memory.
+# (pdo_sqlite/sqlite3 et pdo_pgsql sont déjà présents dans l'image ; on liste
+# pgsql explicitement pour documenter l'intention et rester robuste si l'image
+# de base change. intl, bcmath et exif, eux, ne sont pas fournis.)
 USER root
-RUN install-php-extensions intl bcmath pdo_sqlite exif
+RUN install-php-extensions intl bcmath pdo_sqlite pdo_pgsql pgsql exif
 USER www-data
 
 WORKDIR /var/www/html
@@ -14,9 +17,8 @@ COPY --chown=www-data:www-data . .
 # assets de Filament dans public/ : aucun build npm n'est nécessaire.
 RUN composer install --no-interaction --no-progress --optimize-autoloader --no-dev
 
-# Fichier SQLite — ÉPHÉMÈRE en Bloc 0 (juste pour valider le boot).
-# En Bloc 1 on le déplacera sur un volume persistant Coolify.
-RUN mkdir -p database && touch database/database.sqlite
+# La base est une ressource PostgreSQL managée par Coolify : rien à créer dans
+# l'image. Le schéma est appliqué au démarrage par l'automation ci-dessous.
 
 # Automations serversideup, au démarrage du conteneur :
 #   php artisan storage:link

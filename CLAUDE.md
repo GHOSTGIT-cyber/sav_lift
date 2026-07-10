@@ -6,7 +6,7 @@ Outil **interne** de gestion SAV pour un distributeur/réparateur **Lift Foils**
 
 ## Stack (décidé, ne pas dévier)
 - **Laravel** (dernière version stable) + **Filament** (panneau admin) pour toute l'UI interne.
-- Base : **SQLite** (volume faible).
+- Base : **PostgreSQL managé par Coolify** (ressource dédiée). Les pièces jointes vivent sur le disque `local` (`storage/app/private`), rendu persistant et partagé entre conteneurs par un **bind mount Coolify sur `storage/app`** (géré côté infra, pas dans le code).
 - Hébergement : **Coolify** (Docker), image **serversideup/php** (FrankenPHP). Repo Git.
 - **IA** : appelée via une **API HTTP en ligne** (fournisseur configurable), isolée dans **UNE seule classe** (`MailExtractor`). **Aucun modèle auto-hébergé.**
 - Langue : UI et réponses clients en **français**. Le brouillon vers Lift est en **anglais**.
