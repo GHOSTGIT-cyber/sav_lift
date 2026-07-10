@@ -42,11 +42,26 @@ vendor/bin/pint       # style de code
 
 Le [`Dockerfile`](Dockerfile) est à la racine. Coolify le détecte tout seul.
 
-**Port à exposer : `8080`** (FrankenPHP tourne en non-root, pas sur le 80).
+### Le piège du port → « Bad Gateway »
+
+Dans Coolify, **Configuration → Network → `Ports Exposes` = `8080`**
+(laisser `Ports Mappings` vide). La valeur par défaut est `3000` : tant qu'elle
+y reste, le proxy tape dans le vide et l'on obtient un **502 Bad Gateway**.
+
+L'image expose trois ports, mais un seul répond en HTTP :
+
+| Port | |
+|---|---|
+| `2019` | admin Caddy, **désactivé** → connexion refusée |
+| `8080` | **HTTP — c'est celui-ci** |
+| `8443` | HTTPS, inactif tant que `SSL_MODE` est off → connexion refusée |
+
+FrankenPHP tourne en non-root : il n'écoute donc jamais sur le 80.
 
 Au démarrage du conteneur, les *automations* serversideup exécutent
 `storage:link`, puis `migrate --force --seed` (ce qui crée ou met à jour
-l'administrateur), puis `optimize`.
+l'administrateur), puis `optimize`. Les logs doivent se terminer par
+`FrankenPHP started 🐘 … addr: :8080`.
 
 ### Variables d'environnement à définir dans Coolify
 
@@ -54,10 +69,10 @@ Rien de tout ça n'est dans le dépôt : `.env` est volontairement ignoré par g
 
 | Variable | Valeur | Note |
 |---|---|---|
-| `APP_KEY` | `base64:…` | **obligatoire** — générer avec `php artisan key:generate --show` |
+| `APP_KEY` | `base64:…` | **obligatoire** — sans elle, l'app renvoie 500. Générer avec `php artisan key:generate --show` |
 | `APP_ENV` | `production` | |
 | `APP_DEBUG` | `false` | |
-| `APP_URL` | `https://sav.liftfoils.fr` | l'URL publique réelle |
+| `APP_URL` | `https://sav.efoilcotedazur.fr` | l'URL publique réelle : sert aux redirections de connexion |
 | `APP_LOCALE` | `fr` | |
 | `ADMIN_NAME` | `Admin SAV` | |
 | `ADMIN_EMAIL` | *votre e-mail* | identifiant de connexion à `/admin` |

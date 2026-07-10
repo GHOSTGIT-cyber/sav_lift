@@ -25,6 +25,10 @@ RUN mkdir -p database && touch database/database.sqlite
 ENV AUTORUN_ENABLED=true
 ENV AUTORUN_LARAVEL_MIGRATION_SEED=true
 
-# FrankenPHP tourne en non-root et écoute sur 8080 (pas 80) : c'est ce port
-# qu'il faut viser côté Coolify.
+# FrankenPHP tourne en non-root et écoute sur 8080 (pas 80).
+#
+# L'image de base expose aussi 2019 (admin Caddy, désactivé) et 8443 (HTTPS,
+# inactif tant que SSL_MODE est off) : ces deux-là refusent les connexions.
+# Coolify → Configuration → Network → « Ports Exposes » DOIT valoir 8080,
+# sinon le proxy renvoie 502 Bad Gateway.
 EXPOSE 8080
