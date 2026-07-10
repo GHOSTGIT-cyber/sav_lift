@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\StatutCas;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -40,5 +41,18 @@ class Cas extends Model
         return [
             'statut' => StatutCas::class,
         ];
+    }
+
+    /**
+     * `reference` est à la fois unique et nullable. Un champ de formulaire vide
+     * arrive sous forme de chaîne vide : sans cette normalisation, le deuxième
+     * dossier sans référence violerait l'index unique (SQL, lui, tolère
+     * plusieurs NULL).
+     */
+    protected function reference(): Attribute
+    {
+        return Attribute::set(
+            fn (?string $value): ?string => filled($value) ? trim($value) : null,
+        );
     }
 }

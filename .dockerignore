@@ -1,0 +1,29 @@
+.git
+.github
+.vscode
+.idea
+
+# Secrets et état local : Coolify injecte les variables d'environnement.
+.env
+.env.backup
+.env.production
+
+# Regénérés pendant le build par `composer install`
+# (post-autoload-dump → filament:upgrade → filament:assets).
+/vendor
+/node_modules
+/public/build
+/public/css/filament
+/public/js/filament
+/public/fonts/filament
+
+# Base locale : celle du conteneur est créée puis migrée au démarrage.
+/database/*.sqlite
+/database/*.sqlite-journal
+
+# Journaux locaux. On garde les dossiers storage/framework/* : Laravel exige
+# qu'ils existent au boot.
+/storage/logs/*.log
+
+/docs
+files.zip

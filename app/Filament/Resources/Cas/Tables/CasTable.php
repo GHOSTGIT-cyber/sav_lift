@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\Cas\Tables;
 
+use App\Enums\StatutCas;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class CasTable
@@ -13,43 +15,53 @@ class CasTable
     public static function configure(Table $table): Table
     {
         return $table
+            ->defaultSort('created_at', 'desc')
             ->columns([
                 TextColumn::make('reference')
-                    ->searchable(),
-                TextColumn::make('client_nom')
-                    ->searchable(),
-                TextColumn::make('client_email')
-                    ->searchable(),
-                TextColumn::make('client_telephone')
-                    ->searchable(),
-                TextColumn::make('produit')
-                    ->searchable(),
-                TextColumn::make('modele')
-                    ->searchable(),
-                TextColumn::make('numero_serie')
-                    ->searchable(),
-                TextColumn::make('sales_order')
-                    ->searchable(),
-                TextColumn::make('statut')
-                    ->badge()
-                    ->searchable(),
-                TextColumn::make('ticket_lift')
-                    ->searchable(),
-                TextColumn::make('tracking')
-                    ->searchable(),
-                TextColumn::make('source')
-                    ->searchable(),
-                TextColumn::make('created_at')
-                    ->dateTime()
+                    ->label('Référence')
+                    ->searchable()
                     ->sortable()
+                    ->placeholder('—'),
+                TextColumn::make('client_nom')
+                    ->label('Client')
+                    ->searchable()
+                    ->sortable()
+                    ->placeholder('—'),
+                TextColumn::make('produit')
+                    ->label('Produit')
+                    ->searchable()
+                    ->placeholder('—'),
+                TextColumn::make('statut')
+                    ->label('Statut')
+                    ->badge()
+                    ->sortable(),
+                TextColumn::make('created_at')
+                    ->label('Créé le')
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable(),
+
+                TextColumn::make('numero_serie')
+                    ->label('Numéro de série (MHS)')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('ticket_lift')
+                    ->label('Ticket Lift')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('tracking')
+                    ->label('Numéro de suivi')
+                    ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('updated_at')
-                    ->dateTime()
+                    ->label('Modifié le')
+                    ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                SelectFilter::make('statut')
+                    ->label('Statut')
+                    ->options(StatutCas::class),
             ])
             ->recordActions([
                 EditAction::make(),
@@ -58,6 +70,8 @@ class CasTable
                 BulkActionGroup::make([
                     DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->emptyStateHeading('Aucun dossier SAV')
+            ->emptyStateDescription('Les dossiers arriveront par mail à partir du Bloc 1. En attendant, créez-en un à la main.');
     }
 }

@@ -21,7 +21,6 @@ class AdminUserSeeder extends Seeder
             [
                 'name' => config('sav.admin.nom'),
                 'password' => Hash::make(config('sav.admin.password')),
-                'email_verified_at' => now(),
             ],
         );
 

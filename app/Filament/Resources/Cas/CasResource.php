@@ -18,9 +18,15 @@ class CasResource extends Resource
 {
     protected static ?string $model = Cas::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedLifebuoy;
 
     protected static ?string $recordTitleAttribute = 'reference';
+
+    protected static ?string $modelLabel = 'dossier';
+
+    protected static ?string $pluralModelLabel = 'dossiers SAV';
+
+    protected static ?string $navigationLabel = 'Dossiers SAV';
 
     public static function form(Schema $schema): Schema
     {
