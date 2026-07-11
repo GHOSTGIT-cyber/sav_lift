@@ -36,6 +36,8 @@ class Cas extends Model
         'statut',
         'ticket_lift',
         'tracking',
+        'brouillon_lift',
+        'statut_lift',
         'source',
     ];
 
@@ -47,6 +49,7 @@ class Cas extends Model
             'urgent' => 'boolean',
             'complet' => 'boolean',
             'extrait_le' => 'datetime',
+            'brouillon_lift_le' => 'datetime',
         ];
     }
 
@@ -154,5 +157,24 @@ class Cas extends Model
     public function estActionnable(): bool
     {
         return filled($this->produit) && filled($this->numero_serie);
+    }
+
+    /**
+     * Lien profond vers le ticket sur le portail Zendesk de Lift (repli du
+     * Bloc 3-D, la sync auto étant fermée). Construit à partir du n° de ticket
+     * saisi à la main ; null si aucun ticket.
+     */
+    public function lienPortailZendesk(): ?string
+    {
+        // On ne garde que les chiffres : le champ peut contenir « #90907 », « Ticket 90907 »…
+        $numero = preg_replace('/\D+/', '', (string) $this->ticket_lift) ?: '';
+
+        if ($numero === '') {
+            return null;
+        }
+
+        $base = rtrim((string) config('sav.zendesk.portail_url'), '/');
+
+        return "{$base}/hc/requests/{$numero}";
     }
 }

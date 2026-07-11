@@ -161,4 +161,42 @@ return [
         'app_titre' => env('SAV_IA_APP_TITRE', 'SAV Lift Foils'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Lift Foils (Bloc 3-C)
+    |--------------------------------------------------------------------------
+    |
+    | Destinataire des brouillons SAV et vocabulaire maison, injecté dans le
+    | prompt du rédacteur. Les « Issue Types » Zendesk de Lift sont configurables
+    | (liste séparée par des virgules) — laissés vides tant que Lift ne les fournit
+    | pas ; le brouillon décrit alors le problème librement.
+    |
+    */
+
+    'lift' => [
+        'email' => env('SAV_LIFT_EMAIL', 'help@liftfoils.com'),
+        'issue_types' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('SAV_LIFT_ISSUE_TYPES', '')),
+        ))),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Portail Zendesk de Lift (Bloc 3-D — repli)
+    |--------------------------------------------------------------------------
+    |
+    | La sync auto des statuts a été testée (Bloc 3-D) : l'auth mot de passe sur
+    | l'API requester est fermée côté Lift (401). On reste donc en repli : les
+    | mails de notification Zendesk se rattachent aux dossiers (Bloc 1), le n° de
+    | ticket est saisi à la main, et on offre un lien profond vers le portail.
+    |
+    */
+
+    'zendesk' => [
+        'portail_url' => env('SAV_ZENDESK_PORTAIL', 'https://liftsupport.zendesk.com'),
+        // Passera à true le jour où Lift fournit un token API (sync en lecture seule).
+        'sync_active' => (bool) env('SAV_ZENDESK_SYNC', false),
+    ],
+
 ];

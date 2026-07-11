@@ -3,12 +3,15 @@
 namespace App\Filament\Resources\Cas\Schemas;
 
 use App\Enums\StatutCas;
+use App\Models\Cas;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Support\HtmlString;
 
 class CasForm
 {
@@ -97,10 +100,33 @@ class CasForm
                     ->schema([
                         TextInput::make('ticket_lift')
                             ->label('Ticket Lift')
+                            ->helperText('N° du ticket Zendesk chez Lift, saisi à la main.')
+                            ->maxLength(255),
+                        TextInput::make('statut_lift')
+                            ->label('Statut chez Lift')
+                            ->placeholder('open / solved…')
                             ->maxLength(255),
                         TextInput::make('tracking')
                             ->label('Numéro de suivi')
                             ->maxLength(255),
+                        Placeholder::make('portail_lift')
+                            ->label('Portail Lift')
+                            ->content(fn (?Cas $record): HtmlString => new HtmlString(
+                                $record?->lienPortailZendesk()
+                                    ? '<a href="'.e($record->lienPortailZendesk()).'" target="_blank" rel="noopener" class="text-primary-600 underline">Ouvrir le ticket ↗</a>'
+                                    : '<span class="text-gray-400">— (renseigner le n° de ticket)</span>',
+                            )),
+                    ]),
+
+                Section::make('Brouillon Lift (anglais)')
+                    ->description('Généré par l\'IA à partir du dossier. JAMAIS envoyé automatiquement : à relire, puis copier vers '.config('sav.lift.email').'. Bouton « Générer le brouillon Lift » en haut de page.')
+                    ->collapsible()
+                    ->schema([
+                        Textarea::make('brouillon_lift')
+                            ->hiddenLabel()
+                            ->rows(14)
+                            ->columnSpanFull()
+                            ->placeholder('Aucun brouillon. Utilisez « Générer le brouillon Lift ».'),
                     ]),
             ]);
     }

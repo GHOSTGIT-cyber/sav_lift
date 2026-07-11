@@ -18,14 +18,35 @@ Outil **interne** de gestion SAV pour un distributeur/réparateur **Lift Foils**
 - **Ne jamais décider automatiquement de la garantie** : l'outil signale les indices (date d'achat, contexte choc/eau/transport), l'humain tranche.
 
 ## Modèle de données (cible, construit par blocs)
-Entité centrale : **Cas** (dossier SAV). Autour : **Message** (emails entrants/sortants, avec dédup par Message-ID + threading), **PieceJointe**, puis **Piece**, **Devis**.
+Entité centrale : **Cas** (dossier SAV) — dont, depuis les Blocs 2-3 : `contexte`, `urgent`,
+`complet`, `extrait_le`/`extraction_erreur` (extraction IA), `brouillon_lift`/`brouillon_lift_le`,
+`statut_lift`. Autour : **Message** (emails entrants/sortants, dédup par Message-ID + threading),
+**PieceJointe**, puis **Piece**, **Devis**.
 
 ## Plan par blocs (une conversation par bloc)
 - **Bloc 0** — squelette : Laravel + Filament + table `cas` + déploiement Coolify. ✅ *fait*
 - **Bloc 1** — relève **IMAP** de sav@ → création de cas + pièces jointes + accusé de réception auto. ✅ *fait*
-- **Bloc 2** — **extraction IA** (`MailExtractor`) + statut complet/incomplet + mail de demande d'infos manquantes. ← *suivant*
-- **Bloc 3** — **brouillon email Lift (EN)** + suivi (ticket Lift #, SO, tracking) + **test de la sync Zendesk end-user** (auto-sync des statuts si l'auth passe ; sinon repli mails de notif + lien portail) + gestion des états.
-- **Bloc 4** — **tableau de bord** Filament + génération **devis « contrôle annuel 500 € »** depuis la grille de tarifs (catalogue intervention).
+- **Bloc 2** — **extraction IA** (`MailExtractor`) + statut complet/incomplet. ✅ *fait*
+- **Bloc 3** — **brouillon email Lift (EN)** + suivi (ticket Lift #, SO, tracking) + garde-fou d'envoi + test Zendesk. ✅ *fait*
+- **Bloc 4** — **tableau de bord** Filament + génération **devis « contrôle annuel 500 € »** depuis la grille de tarifs (catalogue intervention). ← *suivant*
+
+### Résultat du test Zendesk (Bloc 3-D)
+Auth requester testée sur `liftsupport.zendesk.com/api/v2/requests` avec `sav@liftfoils.fr` +
+mot de passe : **401 « Couldn't authenticate you »** → l'auth par mot de passe sur l'API est
+**fermée** côté Lift. On reste donc en **repli** : les notifications Zendesk se rattachent aux
+dossiers (Bloc 1), le n° de ticket est saisi à la main (`Cas::lienPortailZendesk()` construit le
+lien profond), le statut Lift est manuel (`statut_lift`). `SAV_ZENDESK_SYNC` reste `false` ; à
+rebrancher (lecture seule) le jour où Lift fournit un **token API**.
+
+### Couche IA (Blocs 2 & 3)
+Fournisseur **compatible OpenAI** (chat/completions) — OpenRouter (modèles gratuits) ou xAI Grok,
+piloté par la config `sav.ia`. **Une seule classe touche le fournisseur** : `App\Services\Ia\ClientIa`,
+utilisée par `OpenAiMailExtractor` (extraction, verbatim-ou-null) et `RedacteurLift` (brouillon EN,
+jamais envoyé auto). Clé en env uniquement ; sans clé, IA désactivée (dossiers créés, non enrichis).
+
+### Garde-fou d'envoi (Bloc 3-B)
+`SAV_ENVOI_ACTIF` (défaut `false`) au-dessus de **tout** envoi, en un seul point
+(`App\Services\Mail\Expediteur`). À `false`, rien ne part : envoi simulé + journalisé.
 
 ## Conventions techniques
 - Statuts `Cas` : `nouveau, attente_client, envoye_lift, attente_lift, atelier, pret, clos` (+ `urgent` en tag/booléen).

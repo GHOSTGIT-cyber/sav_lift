@@ -2,15 +2,10 @@
 
 namespace App\Services\Ia;
 
-use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Support\Str;
-use Throwable;
 
 /**
- * Extraction via une API **compatible OpenAI** (chat/completions) : OpenRouter,
- * xAI Grok, ou tout autre fournisseur parlant le même protocole. C'est la seule
- * classe qui touche le fournisseur (voir CLAUDE.md) ; en changer = fournir une
- * autre implémentation de MailExtractor.
+ * Extraction des champs SAV via le fournisseur IA (ClientIa).
  *
  * On ne dépend PAS du function-calling (support inégal sur les modèles gratuits) :
  * on demande un objet JSON au format imposé (avec `response_format` quand le
@@ -47,90 +42,28 @@ final class OpenAiMailExtractor implements MailExtractor
           doute : null.
         TXT;
 
-    public function __construct(private readonly HttpFactory $http) {}
+    public function __construct(private readonly ClientIa $client) {}
 
     public function extract(string $contenu): array
     {
-        $cle = trim((string) config('sav.ia.cle'));
-
-        if ($cle === '') {
-            throw new ExtractionException('Clé IA absente (SAV_IA_CLE / OPENROUTER_API_KEY / XAI_API_KEY).');
-        }
-
         $contenu = trim($contenu);
 
         if ($contenu === '') {
             return $this->vide();
         }
 
-        $charge = [
-            'model' => (string) config('sav.ia.modele'),
-            'max_tokens' => (int) config('sav.ia.max_tokens', 1024),
-            // Extraction déterministe : pas de créativité.
-            'temperature' => 0,
-            'messages' => [
-                ['role' => 'system', 'content' => self::SYSTEME],
-                ['role' => 'user', 'content' => Str::limit($contenu, 12000, '')],
-            ],
-        ];
+        // response_format seulement si activé (certains modèles gratuits ne le
+        // supportent pas) ; le prompt demande déjà du JSON, le parse est tolérant.
+        $extra = (bool) config('sav.ia.json_mode', true)
+            ? ['response_format' => ['type' => 'json_object']]
+            : [];
 
-        if ((bool) config('sav.ia.json_mode', true)) {
-            $charge['response_format'] = ['type' => 'json_object'];
-        }
+        $texte = $this->client->completion([
+            ['role' => 'system', 'content' => self::SYSTEME],
+            ['role' => 'user', 'content' => Str::limit($contenu, 12000, '')],
+        ], $extra);
 
-        try {
-            $reponse = $this->http
-                ->withHeaders($this->entetes($cle))
-                ->timeout((int) config('sav.ia.timeout', 30))
-                ->retry(2, 500, throw: false)
-                ->post((string) config('sav.ia.url'), $charge);
-        } catch (Throwable $e) {
-            throw new ExtractionException('Appel IA impossible : '.$e->getMessage(), previous: $e);
-        }
-
-        if ($reponse->failed()) {
-            throw new ExtractionException(
-                "L'IA a répondu HTTP {$reponse->status()} : ".Str::limit((string) $reponse->body(), 300),
-            );
-        }
-
-        return $this->normaliser($this->decoderJson($this->contenuReponse($reponse->json())));
-    }
-
-    /** @return array<string, string> */
-    private function entetes(string $cle): array
-    {
-        return [
-            'Authorization' => 'Bearer '.$cle,
-            'content-type' => 'application/json',
-            // Attribution OpenRouter (ignorée par les autres fournisseurs).
-            'HTTP-Referer' => (string) config('sav.ia.app_url'),
-            'X-Title' => (string) config('sav.ia.app_titre'),
-        ];
-    }
-
-    /**
-     * Extrait le texte de la réponse. Certains fournisseurs (OpenRouter) renvoient
-     * un HTTP 200 avec un objet `error` : on le traite comme un échec.
-     */
-    private function contenuReponse(mixed $json): string
-    {
-        if (! is_array($json)) {
-            throw new ExtractionException('Réponse IA illisible.');
-        }
-
-        if (isset($json['error'])) {
-            $message = is_array($json['error']) ? ($json['error']['message'] ?? 'erreur') : (string) $json['error'];
-            throw new ExtractionException('Erreur IA : '.Str::limit((string) $message, 200));
-        }
-
-        $contenu = $json['choices'][0]['message']['content'] ?? null;
-
-        if (! is_string($contenu) || trim($contenu) === '') {
-            throw new ExtractionException('Réponse IA sans contenu (refus, ou modèle sans réponse).');
-        }
-
-        return $contenu;
+        return $this->normaliser($this->decoderJson($texte));
     }
 
     /**

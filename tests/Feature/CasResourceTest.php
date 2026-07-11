@@ -32,6 +32,14 @@ class CasResourceTest extends TestCase
         $this->get(CasResource::getUrl('index'))->assertOk();
     }
 
+    public function test_la_page_edition_repond_avec_les_actions_ia(): void
+    {
+        // Rend la page d'édition (form Bloc 2/3 + actions Ré-extraire / Brouillon Lift).
+        $cas = Cas::create(['reference' => 'SAV-2026-0001', 'client_nom' => 'Test']);
+
+        $this->get(CasResource::getUrl('edit', ['record' => $cas]))->assertOk();
+    }
+
     public function test_un_dossier_cree_dans_l_admin_apparait_dans_la_table(): void
     {
         Livewire::test(CreateCas::class)
