@@ -6,6 +6,7 @@ use App\Enums\StatutCas;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 
@@ -52,6 +53,7 @@ class CasForm
                     ]),
 
                 Section::make('Matériel')
+                    ->description('Pré-rempli par l\'extraction IA (verbatim ou vide). À vérifier avant d\'ouvrir un dossier chez Lift.')
                     ->columns(2)
                     ->schema([
                         TextInput::make('produit')
@@ -67,6 +69,14 @@ class CasForm
                         TextInput::make('sales_order')
                             ->label('Sales Order')
                             ->maxLength(255),
+                        Toggle::make('urgent')
+                            ->label('Urgent')
+                            ->helperText('Signalé par l\'IA ou coché à la main. L\'humain tranche.'),
+                        Toggle::make('complet')
+                            ->label('Dossier complet (actionnable)')
+                            ->helperText('Produit + numéro de série présents.')
+                            ->disabled()
+                            ->dehydrated(false),
                     ]),
 
                 Section::make('Demande')
@@ -74,6 +84,11 @@ class CasForm
                         Textarea::make('description')
                             ->label('Description')
                             ->rows(6)
+                            ->columnSpanFull(),
+                        Textarea::make('contexte')
+                            ->label('Contexte (extrait par l\'IA)')
+                            ->helperText('Choc, immersion, transport, depuis quand… Résumé automatique, modifiable.')
+                            ->rows(3)
                             ->columnSpanFull(),
                     ]),
 

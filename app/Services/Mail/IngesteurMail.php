@@ -8,11 +8,11 @@ use App\Mail\AccuseReceptionMail;
 use App\Models\Cas;
 use App\Models\Message;
 use App\Models\PieceJointe;
+use App\Services\Ia\ServiceExtraction;
 use App\Support\MessageId;
 use App\Support\NomFichier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -32,6 +32,11 @@ use Webklex\PHPIMAP\Attachment;
  */
 class IngesteurMail
 {
+    public function __construct(
+        private readonly ServiceExtraction $extraction,
+        private readonly Expediteur $expediteur,
+    ) {}
+
     /**
      * Sujets d'auto-réponse, en français comme en anglais.
      *
@@ -80,6 +85,10 @@ class IngesteurMail
                 'message_id' => $mail->messageId,
             ]);
 
+            // Une réponse peut apporter l'info qui manquait (le MHS, la facture) :
+            // on ré-extrait pour compléter le dossier (fusion sans écrasement).
+            $this->extraction->pourCas($cas->refresh());
+
             return ResultatIngestion::Rattache;
         }
 
@@ -89,6 +98,10 @@ class IngesteurMail
             'cas' => $cas->reference,
             'from' => $mail->fromEmail,
         ]);
+
+        // Extraction hors de la transaction d'écriture (appel réseau lent) et
+        // non bloquante : un échec marque le dossier sans empêcher l'accusé.
+        $this->extraction->pourCas($cas);
 
         if (! $this->estPartenaire($mail->fromEmail)) {
             $this->accuserReception($cas, $mail);
@@ -301,9 +314,13 @@ class IngesteurMail
     /**
      * Envoi en ligne, hors transaction : un mail parti ne se rembobine pas.
      *
+     * Passe par l'Expediteur, seul juge de si le mail part réellement (garde-fou
+     * SAV_ENVOI_ACTIF). Tant que l'envoi est désactivé, l'accusé est simulé et
+     * on n'enregistre AUCUN message sortant : le dossier reste « vierge d'accusé »,
+     * de sorte qu'au go-live le client reçoive bien son premier accusé.
+     *
      * Si le SMTP est en panne, le dossier reste — c'est l'accusé qui saute. On
-     * le journalise en erreur : mieux vaut un client sans accusé qu'un dossier
-     * perdu, et l'humain voit le dossier arriver dans Filament.
+     * le journalise : mieux vaut un client sans accusé qu'un dossier perdu.
      */
     private function accuserReception(Cas $cas, MailEntrant $mail): void
     {
@@ -311,13 +328,18 @@ class IngesteurMail
         $accuse = new AccuseReceptionMail($cas, $messageId, $mail->messageId);
 
         try {
-            Mail::to($cas->client_email)->send($accuse);
+            $parti = $this->expediteur->envoyer((string) $cas->client_email, $accuse);
         } catch (Throwable $e) {
             Log::error("Accusé de réception non envoyé pour {$cas->reference}", [
                 'destinataire' => $cas->client_email,
                 'exception' => $e->getMessage(),
             ]);
 
+            return;
+        }
+
+        // Envoi simulé (SAV_ENVOI_ACTIF=false) : rien n'est parti, rien à tracer.
+        if (! $parti) {
             return;
         }
 

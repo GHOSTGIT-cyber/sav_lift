@@ -34,6 +34,10 @@ class IngestionMailTest extends TestCase
         config()->set('mail.from.address', 'sav@liftfoils.fr');
         config()->set('mail.from.name', 'SAV Lift Foils France');
 
+        // Ces tests vérifient le comportement d'envoi (accusé, threading) : on
+        // active donc l'envoi. Le garde-fou SAV_ENVOI_ACTIF a son propre test.
+        config()->set('sav.envoi_actif', true);
+
         // La référence d'un dossier porte l'année : on fige le calendrier.
         $this->travelTo('2026-07-10 12:00:00');
     }
@@ -163,6 +167,20 @@ class IngestionMailTest extends TestCase
         $this->assertSame('camille@example.test', $sortant->to_email);
         $this->assertSame('sav@liftfoils.fr', $sortant->from_email);
         $this->assertStringEndsWith('@liftfoils.fr', $sortant->message_id);
+    }
+
+    public function test_le_garde_fou_d_envoi_bloque_tout_accuse(): void
+    {
+        // Le cran de sûreté : rien ne part, et rien n'est enregistré comme
+        // sortant — le dossier reste vierge d'accusé pour le go-live.
+        config()->set('sav.envoi_actif', false);
+
+        $resultat = $this->ingerer(Eml::make());
+
+        $this->assertSame(ResultatIngestion::NouveauDossier, $resultat);
+        $this->assertSame(1, Cas::count());
+        Mail::assertNothingSent();
+        $this->assertSame(0, Message::where('direction', DirectionMessage::Outbound)->count());
     }
 
     public function test_le_dossier_survit_a_un_smtp_en_panne(): void

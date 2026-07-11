@@ -6,9 +6,13 @@ use App\Enums\StatutCas;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class CasTable
 {
@@ -31,6 +35,22 @@ class CasTable
                     ->label('Produit')
                     ->searchable()
                     ->placeholder('—'),
+                IconColumn::make('complet')
+                    ->label('Complet')
+                    ->boolean()
+                    ->trueColor('success')
+                    ->falseColor('gray')
+                    ->sortable()
+                    ->alignCenter(),
+                IconColumn::make('urgent')
+                    ->label('Urgent')
+                    ->boolean()
+                    ->trueIcon('heroicon-s-exclamation-triangle')
+                    ->trueColor('danger')
+                    ->falseIcon('heroicon-o-minus')
+                    ->falseColor('gray')
+                    ->sortable()
+                    ->alignCenter(),
                 TextColumn::make('statut')
                     ->label('Statut')
                     ->badge()
@@ -76,6 +96,12 @@ class CasTable
                 SelectFilter::make('statut')
                     ->label('Statut')
                     ->options(StatutCas::class),
+                TernaryFilter::make('complet')
+                    ->label('Complet / incomplet'),
+                Filter::make('urgent')
+                    ->label('Urgents seulement')
+                    ->query(fn (Builder $query): Builder => $query->where('urgent', true))
+                    ->toggle(),
             ])
             ->recordActions([
                 EditAction::make(),

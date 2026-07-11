@@ -30,6 +30,9 @@ class Cas extends Model
         'numero_serie',
         'sales_order',
         'description',
+        'contexte',
+        'urgent',
+        'complet',
         'statut',
         'ticket_lift',
         'tracking',
@@ -41,6 +44,9 @@ class Cas extends Model
     {
         return [
             'statut' => StatutCas::class,
+            'urgent' => 'boolean',
+            'complet' => 'boolean',
+            'extrait_le' => 'datetime',
         ];
     }
 
@@ -89,5 +95,64 @@ class Cas extends Model
         $compteur = $derniere === null ? 1 : ((int) substr($derniere, -4)) + 1;
 
         return sprintf('SAV-%d-%04d', $annee, $compteur);
+    }
+
+    /**
+     * Le texte soumis à l'extraction IA : les corps des mails **entrants** du
+     * dossier (là où le client donne ses infos), à défaut la description.
+     *
+     * Borné en longueur : au-delà, l'extraction coûte cher pour rien — les
+     * champs recherchés (MHS, modèle) sont presque toujours en tête de fil.
+     */
+    public function contenuPourExtraction(): string
+    {
+        $entrants = $this->messages()
+            ->where('direction', 'inbound')
+            ->orderBy('received_at')
+            ->pluck('body_text')
+            ->filter()
+            ->implode("\n\n---\n\n");
+
+        $contenu = trim($entrants) !== '' ? $entrants : (string) $this->description;
+
+        return str($contenu)->limit(12000, '')->value();
+    }
+
+    /**
+     * Fusionne le résultat d'une extraction dans le dossier, puis recalcule
+     * `complet`.
+     *
+     * Politique de fusion — on **complète sans écraser** : un champ déjà rempli
+     * (souvent saisi ou confirmé par un humain) prime sur une nouvelle
+     * extraction. C'est décisif pour le MHS et le Sales Order, qu'on ne doit
+     * jamais remplacer par une valeur d'un mail ultérieur qui ne les contient pas.
+     * `urgent` est cumulatif : une fois signalé urgent, le dossier le reste.
+     *
+     * @param  array{produit: ?string, modele: ?string, mhs: ?string, sales_order: ?string, contexte: ?string, urgent: bool}  $d
+     */
+    public function appliquerExtraction(array $d): void
+    {
+        $this->produit ??= $d['produit'];
+        $this->modele ??= $d['modele'];
+        $this->numero_serie ??= $d['mhs'];
+        $this->sales_order ??= $d['sales_order'];
+        $this->contexte ??= $d['contexte'];
+        $this->urgent = $this->urgent || $d['urgent'];
+
+        $this->complet = $this->estActionnable();
+        $this->extrait_le = now();
+        $this->extraction_erreur = null;
+
+        $this->save();
+    }
+
+    /**
+     * Règle V1 : un dossier est actionnable (« complet ») dès qu'on connaît le
+     * produit ET son numéro de série — le minimum pour ouvrir un dossier chez
+     * Lift. Le reste (Sales Order, contexte) affine mais ne bloque pas.
+     */
+    public function estActionnable(): bool
+    {
+        return filled($this->produit) && filled($this->numero_serie);
     }
 }

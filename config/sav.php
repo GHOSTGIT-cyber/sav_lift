@@ -42,6 +42,22 @@ return [
 
     'mailbox' => env('SAV_MAILBOX', env('IMAP_USERNAME', 'sav@liftfoils.fr')),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Interrupteur général d'envoi (Bloc 3-B)
+    |--------------------------------------------------------------------------
+    |
+    | Cran de sûreté au-dessus de tout envoi sortant (accusé de réception,
+    | demande d'infos, brouillon Lift). À `false`, RIEN ne part : l'envoi est
+    | simulé et journalisé. Contrôlé en un seul point (App\Services\Mail\Expediteur).
+    |
+    | Par défaut `false` : on n'envoie jamais tant que ce n'est pas activé
+    | explicitement, feu vert humain donné.
+    |
+    */
+
+    'envoi_actif' => (bool) env('SAV_ENVOI_ACTIF', false),
+
     'imap' => [
 
         'dossier' => env('SAV_IMAP_FOLDER', 'INBOX'),
@@ -101,6 +117,48 @@ return [
         'liftfoils.com',
         'zendesk.com',
         'zendesk.fr',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Extraction IA (Bloc 2)
+    |--------------------------------------------------------------------------
+    |
+    | La couche IA lit un mail SAV et en extrait produit / modèle / MHS / Sales
+    | Order / contexte / urgence, en **verbatim ou null** — jamais inventé.
+    | Isolée derrière App\Services\Ia\MailExtractor (point de bascule fournisseur).
+    |
+    | Fournisseur : n'importe quelle API **compatible OpenAI** (chat/completions).
+    | Par défaut OpenRouter (offre des modèles gratuits) ; pour xAI Grok en direct,
+    | mettre SAV_IA_URL=https://api.x.ai/v1/chat/completions et SAV_IA_MODELE=grok-….
+    |
+    | La clé n'est lue QUE via cette config, jamais en dur dans le code. Sans clé,
+    | l'extraction est désactivée : la relève crée les dossiers sans les enrichir.
+    |
+    */
+
+    'ia' => [
+
+        'cle' => env('SAV_IA_CLE', env('OPENROUTER_API_KEY', env('XAI_API_KEY'))),
+
+        'url' => env('SAV_IA_URL', 'https://openrouter.ai/api/v1/chat/completions'),
+
+        // ⚠️ À confirmer sur openrouter.ai/models (filtre « free ») : le nom exact
+        // d'un modèle gratuit peut évoluer. Grok « fast » gratuit par défaut.
+        'modele' => env('SAV_IA_MODELE', 'x-ai/grok-4-fast:free'),
+
+        'timeout' => (int) env('SAV_IA_TIMEOUT', 30),
+
+        'max_tokens' => (int) env('SAV_IA_MAX_TOKENS', 1024),
+
+        // Force une sortie JSON valide côté fournisseur (response_format). Débrayable
+        // si un modèle gratuit ne le supporte pas : le prompt demande déjà du JSON
+        // et le parsing est tolérant (fences Markdown, prose autour).
+        'json_mode' => (bool) env('SAV_IA_JSON_MODE', true),
+
+        // Attribution facultative envoyée à OpenRouter (en-têtes Referer/Title).
+        'app_url' => env('SAV_IA_APP_URL', env('APP_URL', 'https://sav.efoilcotedazur.fr')),
+        'app_titre' => env('SAV_IA_APP_TITRE', 'SAV Lift Foils'),
     ],
 
 ];
