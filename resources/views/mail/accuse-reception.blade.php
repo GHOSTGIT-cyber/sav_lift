@@ -1,40 +1,49 @@
 {{--
-    Texte de l'accusé de réception automatique (cahier des charges).
-    Il vit ici, et pas dans le code, pour être relu et retouché sans déploiement
-    de logique. Toute modification est visible immédiatement par le client.
+    Accusé de réception + demande des pièces manquantes, en un seul mail.
+
+    Le texte de base est celui validé par le client ; la liste à puces, elle, est
+    GÉNÉRÉE (voir App\Services\Dossier\RegleCompletude) : on ne réclame que ce qui
+    manque vraiment. Le texte vit ici, et pas dans le code, pour être retouché sans
+    déploiement de logique.
 --}}
 <x-mail::message>
-# Bonjour{{ $cas->client_nom ? ' '.$cas->client_nom : '' }},
+Bonjour{{ $cas->client_nom ? ' '.$cas->client_nom : '' }},
 
-Nous avons bien reçu votre demande de service après-vente et nous vous en remercions.
+Merci de nous avoir contactés concernant votre demande SAV Lift Foils.
 
-Votre dossier porte la référence **{{ $cas->reference }}**. Merci de la rappeler dans vos prochains échanges.
+Votre demande a bien été reçue par notre équipe et porte la référence **{{ $cas->reference }}**.
+Merci de la rappeler dans vos prochains échanges.
 
-Afin que nous puissions traiter votre demande au plus vite, merci de nous transmettre
-les éléments suivants s'ils ne figuraient pas déjà dans votre message :
+@if ($demandes === [])
+Votre dossier est complet : nous le transmettons au support Lift Foils. Nous revenons
+vers vous dès leur réponse.
+@else
+Afin de pouvoir traiter votre dossier rapidement et, si nécessaire, ouvrir un ticket
+auprès du support Lift Foils, merci de nous transmettre les éléments suivants :
 
-- **Vos coordonnées complètes** : nom, adresse postale et numéro de téléphone.
-- **Le modèle exact** du produit concerné (planche, batterie, télécommande, eBox/ESC, moteur, mât, chargeur, foil…).
-- **Le numéro de série (MHS)** de l'élément concerné.
-- **Une photo nette de l'étiquette** portant ce numéro de série.
-- **La facture d'achat** ou, à défaut, le numéro de commande (Sales Order).
-- **Une description précise du problème** rencontré.
-- **Des photos et/ou une vidéo** montrant le défaut.
-- **Le contexte d'apparition** du problème : depuis quand, dans quelles conditions d'utilisation,
-  après un choc, une immersion prolongée ou un transport ?
+{{-- rtrim : la dernière puce (« …, après contact avec l'eau, etc. ») porte déjà
+     son point ; sans ça, on écrirait « etc.. ». --}}
+@foreach ($demandes as $demande)
+- {{ rtrim($demande, '.') }}{{ $loop->last ? '.' : ' ;' }}
+@endforeach
 
-Ces informations nous sont indispensables pour ouvrir le dossier auprès de Lift Foils
-et déterminer la prise en charge applicable.
+Dès réception de ces éléments, nous pourrons :
+
+1. analyser votre demande ;
+2. déterminer s'il s'agit d'un cas de garantie, d'un diagnostic atelier ou d'une intervention hors garantie ;
+3. ouvrir si nécessaire un ticket auprès du support Lift Foils ;
+4. vous tenir informé de la suite du traitement.
+@endif
 
 <x-mail::panel>
-Merci de **centraliser tous vos échanges sur l'adresse {{ config('sav.mailbox') }}**,
-en répondant directement à ce message. Les demandes envoyées à une autre adresse
-ou par un autre canal risquent de ne pas être rattachées à votre dossier.
+**Important** — pour un traitement efficace, merci de centraliser les échanges liés à ce
+dossier par email à **{{ config('sav.mailbox') }}**, en répondant directement à ce message,
+et d'éviter les doublons par SMS, WhatsApp ou appels directs, sauf urgence.
 </x-mail::panel>
 
-Nous revenons vers vous dès que votre dossier a été étudié.
+Nous revenons vers vous dès que possible.
 
-Cordialement,
+Bien cordialement,
 
-L'équipe SAV — {{ config('mail.from.name') }}
+L'équipe SAV Lift Foils France
 </x-mail::message>

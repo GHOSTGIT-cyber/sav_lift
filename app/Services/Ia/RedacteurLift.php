@@ -54,13 +54,18 @@ final class RedacteurLift
             (SAV). One case per e-mail.
 
             Output format — plain text only, no Markdown:
-              Subject: <short, specific subject line>
+              Subject: [<dealer case reference>] <short, specific subject line>
               <blank line>
               <body: a short greeting, the problem, the key facts, and a clear ask>
 
             Rules:
-            - Recopy the serial number (MHS) and the Sales Order VERBATIM, or omit
-              them entirely. NEVER invent or guess a serial or order number.
+            - The subject MUST start with the dealer case reference in square
+              brackets, e.g. "Subject: [SAV-2026-0001] Battery not charging".
+              Lift's replies quote the subject: that bracket is how we route their
+              answer back to the right case.
+            - Recopy the serial number (MHS), the Sales Order and the purchase date
+              VERBATIM, or omit them entirely. NEVER invent or guess a serial, an
+              order number or a date.
             - State only what the case data supports. Do not fabricate diagnostics
               or warranty conclusions — the warranty call is Lift's to make.
             - Use Lift vocabulary: HC = handcontroller (remote), eBox/ESC, mast,
@@ -79,6 +84,7 @@ final class RedacteurLift
             'Model' => $cas->modele,
             'Serial number (MHS)' => $cas->numero_serie,
             'Sales Order' => $cas->sales_order,
+            'Purchase date (verbatim)' => $cas->date_achat,
             'Context (FR)' => $cas->contexte,
             'Urgent' => $cas->urgent ? 'yes' : null,
         ], fn ($v) => filled($v));

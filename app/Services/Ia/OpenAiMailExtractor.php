@@ -31,6 +31,8 @@ final class OpenAiMailExtractor implements MailExtractor
           "modele"      : modèle exact cité (ex. "Lift4", "MY H3"), verbatim, ou null
           "mhs"         : numéro de série MHS, verbatim caractère pour caractère, ou null
           "sales_order" : numéro de commande / Sales Order, verbatim, ou null
+          "date_achat"  : date d'achat telle qu'elle est écrite ("12/03/2025",
+                          "juillet 2024"), verbatim, ou null
           "contexte"    : court résumé EN FRANÇAIS du problème et du contexte
                           (choc, immersion, transport, depuis quand), ou null
           "urgent"      : true si le mail exprime une urgence, sinon false
@@ -38,8 +40,10 @@ final class OpenAiMailExtractor implements MailExtractor
         Règles absolues :
         - Chaque champ est rempli VERBATIM depuis l'e-mail, ou null s'il est absent.
           N'invente JAMAIS, ne déduis pas, ne complète pas.
-        - Le MHS et le Sales Order sont recopiés à l'identique, ou null. En cas de
-          doute : null.
+        - Le MHS, le Sales Order et la date d'achat sont recopiés à l'identique, ou
+          null. En cas de doute : null. Ne convertis pas la date, ne la devine pas.
+        - Ne conclus JAMAIS sur la garantie : la date d'achat n'est qu'un indice,
+          c'est un humain qui tranche.
         TXT;
 
     public function __construct(private readonly ClientIa $client) {}
@@ -101,7 +105,7 @@ final class OpenAiMailExtractor implements MailExtractor
      * connues, et on ramène toute valeur vide à null.
      *
      * @param  array<string, mixed>  $data
-     * @return array{produit: ?string, modele: ?string, mhs: ?string, sales_order: ?string, contexte: ?string, urgent: bool}
+     * @return array{produit: ?string, modele: ?string, mhs: ?string, sales_order: ?string, date_achat: ?string, contexte: ?string, urgent: bool}
      */
     private function normaliser(array $data): array
     {
@@ -116,6 +120,7 @@ final class OpenAiMailExtractor implements MailExtractor
             'modele' => $this->texteOuNull($data['modele'] ?? null),
             'mhs' => $this->texteOuNull($data['mhs'] ?? null),
             'sales_order' => $this->texteOuNull($data['sales_order'] ?? null),
+            'date_achat' => $this->texteOuNull($data['date_achat'] ?? null),
             'contexte' => $this->texteOuNull($data['contexte'] ?? null),
             'urgent' => filter_var($data['urgent'] ?? false, FILTER_VALIDATE_BOOL),
         ];
@@ -134,12 +139,12 @@ final class OpenAiMailExtractor implements MailExtractor
             : $valeur;
     }
 
-    /** @return array{produit: null, modele: null, mhs: null, sales_order: null, contexte: null, urgent: false} */
+    /** @return array{produit: null, modele: null, mhs: null, sales_order: null, date_achat: null, contexte: null, urgent: false} */
     private function vide(): array
     {
         return [
-            'produit' => null, 'modele' => null, 'mhs' => null,
-            'sales_order' => null, 'contexte' => null, 'urgent' => false,
+            'produit' => null, 'modele' => null, 'mhs' => null, 'sales_order' => null,
+            'date_achat' => null, 'contexte' => null, 'urgent' => false,
         ];
     }
 }

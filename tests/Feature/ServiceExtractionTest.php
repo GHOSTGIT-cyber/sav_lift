@@ -35,17 +35,22 @@ class ServiceExtractionTest extends TestCase
 
         $resultat = $this->service($this->extracteurRendant([
             'produit' => 'batterie', 'modele' => 'Lift4', 'mhs' => 'MHS-1',
-            'sales_order' => 'SO-1', 'contexte' => 'choc', 'urgent' => true,
+            'sales_order' => 'SO-1', 'date_achat' => 'juillet 2024',
+            'contexte' => 'choc', 'urgent' => true,
         ]))->pourCas($cas);
 
         $this->assertSame(ResultatExtraction::Enrichi, $resultat);
         $cas->refresh();
         $this->assertSame('batterie', $cas->produit);
         $this->assertSame('MHS-1', $cas->numero_serie);
+        $this->assertSame('juillet 2024', $cas->date_achat);
         $this->assertSame('choc', $cas->contexte);
         $this->assertTrue($cas->urgent);
-        $this->assertTrue($cas->complet); // produit + MHS présents
         $this->assertNotNull($cas->extrait_le);
+
+        // `complet` reste faux : l'extraction ne peut pas fabriquer les pièces
+        // (photo d'étiquette, photos du défaut) — voir RegleCompletude.
+        $this->assertFalse($cas->complet);
     }
 
     public function test_incomplet_si_le_mhs_manque(): void
@@ -54,8 +59,8 @@ class ServiceExtractionTest extends TestCase
         $cas = Cas::create(['reference' => 'SAV-2026-0002']);
 
         $this->service($this->extracteurRendant([
-            'produit' => 'moteur', 'modele' => null, 'mhs' => null,
-            'sales_order' => null, 'contexte' => null, 'urgent' => false,
+            'produit' => 'moteur', 'modele' => null, 'mhs' => null, 'sales_order' => null,
+            'date_achat' => null, 'contexte' => null, 'urgent' => false,
         ]))->pourCas($cas);
 
         $this->assertFalse($cas->refresh()->complet);
@@ -73,7 +78,7 @@ class ServiceExtractionTest extends TestCase
 
         $this->service($this->extracteurRendant([
             'produit' => 'moteur', 'modele' => 'X', 'mhs' => 'MHS-IA',
-            'sales_order' => null, 'contexte' => null, 'urgent' => false,
+            'sales_order' => null, 'date_achat' => null, 'contexte' => null, 'urgent' => false,
         ]))->pourCas($cas);
 
         $cas->refresh();

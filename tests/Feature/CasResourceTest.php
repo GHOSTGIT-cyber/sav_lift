@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\StatutCas;
+use App\Enums\VueDossier;
 use App\Filament\Resources\Cas\CasResource;
 use App\Filament\Resources\Cas\Pages\CreateCas;
 use App\Filament\Resources\Cas\Pages\ListCas;
@@ -107,27 +108,30 @@ class CasResourceTest extends TestCase
             ->assertHasFormErrors(['reference']);
     }
 
-    public function test_le_filtre_par_statut_fonctionne(): void
+    /**
+     * La liste est désormais découpée en cinq onglets (VueDossier) : le filtre
+     * par statut interne travaille DANS l'onglet actif, il ne le contourne pas.
+     * On se place donc dans « Atelier », qui porte les deux statuts fins.
+     */
+    public function test_le_filtre_par_statut_fonctionne_dans_l_onglet(): void
     {
-        $nouveau = Cas::create(['client_nom' => 'A', 'statut' => StatutCas::Nouveau]);
-        $clos = Cas::create(['client_nom' => 'B', 'statut' => StatutCas::Clos]);
+        $atelier = Cas::create(['client_nom' => 'A', 'statut' => StatutCas::Atelier]);
+        $pret = Cas::create(['client_nom' => 'B', 'statut' => StatutCas::Pret]);
 
         Livewire::test(ListCas::class)
-            ->filterTable('statut', StatutCas::Clos->value)
-            ->assertCanSeeTableRecords([$clos])
-            ->assertCanNotSeeTableRecords([$nouveau]);
+            ->set('activeTab', VueDossier::Atelier->value)
+            ->assertCanSeeTableRecords([$atelier, $pret])
+            ->filterTable('statut', StatutCas::Pret->value)
+            ->assertCanSeeTableRecords([$pret])
+            ->assertCanNotSeeTableRecords([$atelier]);
     }
 
-    public function test_chaque_statut_affiche_son_libelle_francais_dans_la_table(): void
+    public function test_les_cinq_vues_sont_les_onglets_de_la_liste(): void
     {
-        foreach (StatutCas::cases() as $statut) {
-            Cas::create(['client_nom' => $statut->name, 'statut' => $statut]);
-        }
-
         $reponse = Livewire::test(ListCas::class);
 
-        foreach (StatutCas::cases() as $statut) {
-            $reponse->assertSee($statut->getLabel());
+        foreach (VueDossier::cases() as $vue) {
+            $reponse->assertSee($vue->getLabel());
         }
     }
 
@@ -148,6 +152,14 @@ class CasResourceTest extends TestCase
                 "La couleur « {$statut->getColor()} » du statut « {$statut->value} » n'est pas enregistrée dans AdminPanelProvider.",
             );
         }
+
+        foreach (VueDossier::cases() as $vue) {
+            $this->assertContains(
+                $vue->getColor(),
+                $enregistrees,
+                "La couleur « {$vue->getColor()} » de la vue « {$vue->value} » n'est pas enregistrée dans AdminPanelProvider.",
+            );
+        }
     }
 
     public function test_la_page_expose_bien_les_variables_css_des_couleurs_personnalisees(): void
@@ -164,6 +176,7 @@ class CasResourceTest extends TestCase
         $ancien = Cas::create(['client_nom' => 'Ancien', 'created_at' => now()->subDay()]);
         $recent = Cas::create(['client_nom' => 'Récent', 'created_at' => now()]);
 
+        // Tous deux incomplets → onglet « À compléter », l'onglet par défaut.
         Livewire::test(ListCas::class)
             ->assertCanSeeTableRecords([$recent, $ancien], inOrder: true);
     }

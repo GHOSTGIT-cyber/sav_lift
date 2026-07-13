@@ -2,7 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\DirectionMessage;
 use App\Enums\StatutCas;
+use App\Enums\VueDossier;
+use App\Observers\CasObserver;
+use App\Services\Dossier\Exigence;
+use App\Services\Dossier\RegleCompletude;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * Un dossier SAV : une demande client, de sa réception à sa résolution.
  */
+#[ObservedBy(CasObserver::class)]
 class Cas extends Model
 {
     /**
@@ -29,6 +36,10 @@ class Cas extends Model
         'modele',
         'numero_serie',
         'sales_order',
+        'date_achat',
+        'photo_etiquette',
+        'preuve_achat',
+        'photos_defaut',
         'description',
         'contexte',
         'urgent',
@@ -48,9 +59,32 @@ class Cas extends Model
             'statut' => StatutCas::class,
             'urgent' => 'boolean',
             'complet' => 'boolean',
+            'photo_etiquette' => 'boolean',
+            'preuve_achat' => 'boolean',
+            'photos_defaut' => 'boolean',
             'extrait_le' => 'datetime',
             'brouillon_lift_le' => 'datetime',
+            'relance_client_le' => 'datetime',
+            'envoye_lift_le' => 'datetime',
+            'reponse_lift_le' => 'datetime',
+            'client_avise_lift_le' => 'datetime',
         ];
+    }
+
+    /**
+     * `complet` est dérivé, jamais saisi : on le recalcule à chaque écriture,
+     * quelle que soit la porte d'entrée (extraction IA, formulaire Filament,
+     * commande artisan). C'est ce qui garantit qu'un dossier ne reste pas dans
+     * la mauvaise vue parce qu'on a oublié d'appeler la bonne méthode.
+     *
+     * Les pièces jointes, elles, ne passent pas par une écriture du dossier :
+     * c'est PieceJointe qui redemande le calcul quand on en ajoute ou en retire.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Cas $cas): void {
+            $cas->complet = RegleCompletude::estComplet($cas);
+        });
     }
 
     /**
@@ -100,6 +134,88 @@ class Cas extends Model
         return sprintf('SAV-%d-%04d', $annee, $compteur);
     }
 
+    // -------------------------------------------------------------- Complétude
+
+    /**
+     * Photo de l'étiquette du numéro de série.
+     *
+     * Aucun code ne sait ce que montre un JPEG, et « lisible » est un jugement
+     * humain. On **présume** donc que le client qui nous a donné son MHS l'a
+     * photographié, dès lors qu'une image est jointe au dossier. Le dossier
+     * passe alors en « À valider » — la vue où, précisément, un humain regarde.
+     * S'il constate que l'étiquette manque ou est floue, il bascule la pièce sur
+     * « Absente » (`photo_etiquette = false`) : le dossier repart en
+     * « À compléter » et le client est relancé.
+     */
+    public function aPhotoEtiquette(): bool
+    {
+        return $this->photo_etiquette ?? (
+            filled($this->numero_serie)
+            && $this->pieceJointes->contains(fn (PieceJointe $p): bool => $p->estImage())
+        );
+    }
+
+    /** Facture (un document joint) OU numéro de Sales Order. Surchargeable à la main. */
+    public function aPreuveAchat(): bool
+    {
+        return $this->preuve_achat ?? (
+            filled($this->sales_order)
+            || $this->pieceJointes->contains(fn (PieceJointe $p): bool => $p->estDocument())
+        );
+    }
+
+    /** Photos et/ou vidéos du défaut. Présumées dès qu'un média est joint. */
+    public function aPhotosDefaut(): bool
+    {
+        return $this->photos_defaut
+            ?? $this->pieceJointes->contains(fn (PieceJointe $p): bool => $p->estImage() || $p->estVideo());
+    }
+
+    /** Le dossier peut-il partir chez Lift ? (aucune exigence bloquante ne manque). */
+    public function estActionnable(): bool
+    {
+        return RegleCompletude::estComplet($this);
+    }
+
+    /**
+     * Ce qui manque et qui interdit d'ouvrir le dossier chez Lift.
+     *
+     * @return list<Exigence>
+     */
+    public function manquantsBloquants(): array
+    {
+        return RegleCompletude::manquantsBloquants($this);
+    }
+
+    /**
+     * Recalcule `complet` depuis des pièces jointes fraîches.
+     *
+     * Appelé quand une pièce jointe entre ou sort : la relation peut être déjà
+     * chargée sur cette instance, et donc périmée d'une pièce.
+     */
+    public function rafraichirCompletude(): void
+    {
+        $this->unsetRelation('pieceJointes');
+
+        // Le hook `saving` refait le calcul ; on n'écrit que s'il change.
+        if ($this->complet !== RegleCompletude::estComplet($this)) {
+            $this->save();
+        }
+    }
+
+    public function vue(): VueDossier
+    {
+        return VueDossier::de($this);
+    }
+
+    /** L'instruction affichée en tête de la fiche. */
+    public function prochaineAction(): string
+    {
+        return $this->vue()->prochaineAction($this);
+    }
+
+    // --------------------------------------------------------------- Extraction
+
     /**
      * Le texte soumis à l'extraction IA : les corps des mails **entrants** du
      * dossier (là où le client donne ses infos), à défaut la description.
@@ -110,7 +226,7 @@ class Cas extends Model
     public function contenuPourExtraction(): string
     {
         $entrants = $this->messages()
-            ->where('direction', 'inbound')
+            ->where('direction', DirectionMessage::Inbound)
             ->orderBy('received_at')
             ->pluck('body_text')
             ->filter()
@@ -122,8 +238,7 @@ class Cas extends Model
     }
 
     /**
-     * Fusionne le résultat d'une extraction dans le dossier, puis recalcule
-     * `complet`.
+     * Fusionne le résultat d'une extraction dans le dossier.
      *
      * Politique de fusion — on **complète sans écraser** : un champ déjà rempli
      * (souvent saisi ou confirmé par un humain) prime sur une nouvelle
@@ -131,7 +246,9 @@ class Cas extends Model
      * jamais remplacer par une valeur d'un mail ultérieur qui ne les contient pas.
      * `urgent` est cumulatif : une fois signalé urgent, le dossier le reste.
      *
-     * @param  array{produit: ?string, modele: ?string, mhs: ?string, sales_order: ?string, contexte: ?string, urgent: bool}  $d
+     * `complet` est recalculé à l'enregistrement (hook `saving`).
+     *
+     * @param  array{produit: ?string, modele: ?string, mhs: ?string, sales_order: ?string, date_achat: ?string, contexte: ?string, urgent: bool}  $d
      */
     public function appliquerExtraction(array $d): void
     {
@@ -139,30 +256,54 @@ class Cas extends Model
         $this->modele ??= $d['modele'];
         $this->numero_serie ??= $d['mhs'];
         $this->sales_order ??= $d['sales_order'];
+        $this->date_achat ??= $d['date_achat'];
         $this->contexte ??= $d['contexte'];
         $this->urgent = $this->urgent || $d['urgent'];
 
-        $this->complet = $this->estActionnable();
         $this->extrait_le = now();
         $this->extraction_erreur = null;
 
         $this->save();
     }
 
+    // --------------------------------------------------------------------- Lift
+
     /**
-     * Règle V1 : un dossier est actionnable (« complet ») dès qu'on connaît le
-     * produit ET son numéro de série — le minimum pour ouvrir un dossier chez
-     * Lift. Le reste (Sales Order, contexte) affine mais ne bloque pas.
+     * L'objet du mail vers Lift, tiré du brouillon (« Subject: … » en 1re ligne).
+     *
+     * On force la référence du dossier dans l'objet. C'est notre filet pour
+     * rattacher la réponse de Lift au bon dossier le jour où le threading se
+     * perd en route (Zendesk réécrit volontiers les en-têtes).
      */
-    public function estActionnable(): bool
+    public function sujetBrouillonLift(): string
     {
-        return filled($this->produit) && filled($this->numero_serie);
+        $sujet = preg_match('/^\s*subject\s*:\s*(.+)$/im', (string) $this->brouillon_lift, $m) === 1
+            ? trim($m[1])
+            : trim(implode(' ', array_filter([$this->produit, $this->modele])));
+
+        if ($sujet === '') {
+            $sujet = 'Lift SAV request';
+        }
+
+        $reference = (string) $this->reference;
+
+        return $reference !== '' && ! str_contains($sujet, $reference)
+            ? "[{$reference}] {$sujet}"
+            : $sujet;
+    }
+
+    /** Le corps du brouillon, privé de sa ligne « Subject: » (devenue l'objet). */
+    public function corpsBrouillonLift(): string
+    {
+        $brouillon = trim((string) $this->brouillon_lift);
+
+        return trim((string) preg_replace('/^\s*subject\s*:.*(\R+|$)/i', '', $brouillon, 1));
     }
 
     /**
      * Lien profond vers le ticket sur le portail Zendesk de Lift (repli du
-     * Bloc 3-D, la sync auto étant fermée). Construit à partir du n° de ticket
-     * saisi à la main ; null si aucun ticket.
+     * Bloc 3-D, la sync auto étant fermée). Construit à partir du n° de ticket,
+     * capté dans l'accusé de Lift (Bloc 4) ou saisi à la main.
      */
     public function lienPortailZendesk(): ?string
     {

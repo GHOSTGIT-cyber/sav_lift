@@ -6,6 +6,7 @@ use App\Mail\AccuseReceptionMail;
 use App\Models\Cas;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Mime\Email;
 use Tests\TestCase;
 
@@ -73,26 +74,71 @@ class AccuseReceptionMailTest extends TestCase
         $this->assertSame('camille@example.test', $mail->getTo()[0]->getAddress());
     }
 
-    public function test_le_corps_reprend_la_reference_et_les_pieces_a_fournir(): void
+    public function test_le_corps_reprend_la_reference_et_reclame_les_pieces_manquantes(): void
     {
         $corps = $this->envoyer()->getTextBody();
 
         $this->assertStringContainsString('Camille Dupont', $corps);
         $this->assertStringContainsString('SAV-2026-0001', $corps);
 
+        // Le dossier de ce test est vide : tout est à réclamer, sauf les
+        // coordonnées (nom + e-mail), qu'il porte déjà. C'est tout le principe.
         foreach ([
-            'coordonnées complètes',
-            'modèle exact',
-            'numéro de série (MHS)',
-            'photo nette de l\'étiquette',
+            'modèle exact concerné',
+            'numéro MHS',
+            'photo lisible de l\'étiquette',
             'facture d\'achat',
             'Sales Order',
-            'description précise',
-            'photos et/ou une vidéo',
+            'description courte et précise',
+            'photos et/ou vidéos',
             'contexte d\'apparition',
             'sav@liftfoils.fr',
         ] as $element) {
             $this->assertStringContainsString($element, $corps, "L'accusé n'évoque pas « {$element} ».");
         }
+    }
+
+    /**
+     * Le cœur du correctif « flux Nico » : le mail ne réclame QUE ce qui manque.
+     * Le client a donné son nom et son e-mail — on ne les redemande pas.
+     */
+    public function test_l_accuse_ne_reclame_pas_ce_que_le_client_a_deja_fourni(): void
+    {
+        $corps = $this->envoyer()->getTextBody();
+
+        $this->assertStringNotContainsString('vos coordonnées', $corps);
+    }
+
+    /** Dossier complet : le même mail, sans aucune puce, et il le dit. */
+    public function test_un_dossier_complet_ne_reclame_rien(): void
+    {
+        Storage::fake('local');
+
+        config()->set('mail.from.address', 'sav@liftfoils.fr');
+        config()->set('sav.mailbox', 'sav@liftfoils.fr');
+
+        $cas = Cas::create([
+            'reference' => 'SAV-2026-0002',
+            'client_nom' => 'Camille Dupont',
+            'client_email' => 'camille@example.test',
+            'client_telephone' => '0612345678',
+            'produit' => 'batterie',
+            'modele' => 'Lift4',
+            'numero_serie' => 'MHS-123456',
+            'sales_order' => 'SO-99',
+            'date_achat' => 'juillet 2024',
+            'description' => 'Ne charge plus.',
+            'contexte' => 'après un choc',
+            'photo_etiquette' => true,
+            'photos_defaut' => true,
+        ]);
+
+        Mail::to($cas->client_email)->send(new AccuseReceptionMail($cas, 'sav-1@liftfoils.fr'));
+
+        $corps = Mail::mailer()->getSymfonyTransport()->messages()->first()
+            ->getOriginalMessage()->getTextBody();
+
+        $this->assertStringContainsString('Votre dossier est complet', $corps);
+        $this->assertStringNotContainsString('merci de nous transmettre les éléments suivants', $corps);
     }
 }

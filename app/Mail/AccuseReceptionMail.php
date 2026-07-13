@@ -3,6 +3,8 @@
 namespace App\Mail;
 
 use App\Models\Cas;
+use App\Services\Dossier\Exigence;
+use App\Services\Dossier\RegleCompletude;
 use App\Support\MessageId;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -10,15 +12,27 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Mail\Mailables\Headers;
 
 /**
- * Le seul mail que l'outil envoie sans validation humaine (voir CLAUDE.md).
+ * L'unique mail automatique vers le client : accusé de réception **et** demande
+ * des pièces manquantes, en une seule fois.
  *
- * Envoyé en ligne, pas en file d'attente : au Bloc 1 la relève IMAP est déjà
- * une tâche de fond, et un accusé qui part deux minutes plus tard n'apporte
- * rien. La file arrivera au Bloc 2, quand l'appel à l'IA rendra l'asynchrone
- * utile.
+ * Envoyé APRÈS l'extraction IA — et c'est tout l'intérêt : la liste des pièces
+ * réclamées est **générée** à partir de ce qui manque réellement au dossier
+ * (RegleCompletude). On ne redemande jamais au client ce qu'il vient de nous
+ * fournir. Si plus rien ne manque, le mail le dit et ne réclame rien.
+ *
+ * Il sert aussi de relance, déclenchée à la main depuis la fiche du dossier.
  */
 class AccuseReceptionMail extends Mailable
 {
+    /**
+     * Les phrases à mettre en puces : ce qui manque, formulé pour le client.
+     * On n'en garde que le texte — un Mailable doit rester sérialisable, et une
+     * Exigence porte une closure.
+     *
+     * @var list<string>
+     */
+    public readonly array $demandes;
+
     /**
      * @param  string  $messageId  L'identifiant que portera CE mail, généré en amont
      *                             pour pouvoir l'enregistrer en base (voir MessageId).
@@ -29,7 +43,12 @@ class AccuseReceptionMail extends Mailable
         public readonly Cas $cas,
         protected readonly string $messageId,
         protected readonly ?string $enReponseA = null,
-    ) {}
+    ) {
+        $this->demandes = array_map(
+            fn (Exigence $exigence): string => $exigence->demande,
+            RegleCompletude::manquants($cas),
+        );
+    }
 
     public function envelope(): Envelope
     {

@@ -150,7 +150,7 @@ class ExtractionCommandsTest extends TestCase
 
         $cas = Cas::where('reference', 'SAV-2026-0007')->sole();
         $this->assertSame('moteur', $cas->produit);
-        $this->assertTrue($cas->complet);
+        $this->assertSame('MHS-9', $cas->numero_serie);
         Mail::assertNothingSent();
     }
 }

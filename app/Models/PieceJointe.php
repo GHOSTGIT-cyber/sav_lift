@@ -64,9 +64,38 @@ class PieceJointe extends Model
         return $this->belongsTo(Message::class);
     }
 
+    /**
+     * Une pièce jointe entre ou sort : la complétude du dossier a pu changer
+     * (la photo de l'étiquette, la vidéo du défaut, la facture…). On redemande
+     * le calcul au dossier, sans quoi il resterait dans la mauvaise vue jusqu'à
+     * sa prochaine écriture.
+     */
+    protected static function booted(): void
+    {
+        $rafraichir = fn (PieceJointe $piece) => $piece->cas?->rafraichirCompletude();
+
+        static::created($rafraichir);
+        static::deleted($rafraichir);
+    }
+
     public function estImage(): bool
     {
         return str_starts_with((string) $this->mime, 'image/');
+    }
+
+    public function estVideo(): bool
+    {
+        return str_starts_with((string) $this->mime, 'video/');
+    }
+
+    /**
+     * Un document : facture, bon de commande, PDF de garantie… Tout ce qui
+     * n'est ni une image ni une vidéo, et qui vaut donc présomption de preuve
+     * d'achat (voir Cas::aPreuveAchat).
+     */
+    public function estDocument(): bool
+    {
+        return $this->mime !== null && ! $this->estImage() && ! $this->estVideo();
     }
 
     /** Peut-on en montrer un aperçu sans risque (voir IMAGES_AFFICHABLES) ? */

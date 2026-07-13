@@ -4,13 +4,15 @@ namespace App\Services\Mail;
 
 use App\Enums\DirectionMessage;
 use App\Enums\StatutCas;
-use App\Mail\AccuseReceptionMail;
 use App\Models\Cas;
 use App\Models\Message;
 use App\Models\PieceJointe;
 use App\Services\Ia\ServiceExtraction;
-use App\Support\MessageId;
 use App\Support\NomFichier;
+use App\Support\Partenaires;
+use App\Support\SujetMail;
+use App\Support\TicketLift;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -21,7 +23,7 @@ use Webklex\PHPIMAP\Attachment;
 /**
  * Transforme un mail relevé en dossier — ou le rattache à celui qui existe.
  *
- * Deux invariants gouvernent cette classe :
+ * Trois invariants gouvernent cette classe :
  *
  *  1. **Idempotence.** Un mail déjà vu (même Message-ID) ne produit rien. La
  *     relève peut donc repasser sur la même fenêtre, être relancée après un
@@ -29,12 +31,16 @@ use Webklex\PHPIMAP\Attachment;
  *  2. **Pas de boucle d'auto-réponses.** Le seul mail que l'outil envoie sans
  *     validation humaine est l'accusé de réception ; il ne part qu'à l'ouverture
  *     d'un dossier, jamais vers un robot, jamais vers la boîte SAV elle-même.
+ *  3. **Les mails de Lift font avancer le dossier.** Leur Zendesk nous écrit :
+ *     son accusé porte le n° de ticket, ses réponses appellent une action. C'est
+ *     là toute la « synchro » avec Lift — pas de connexion à leur API (fermée,
+ *     401 confirmé au Bloc 3-D), juste leurs mails, lus.
  */
 class IngesteurMail
 {
     public function __construct(
         private readonly ServiceExtraction $extraction,
-        private readonly Expediteur $expediteur,
+        private readonly NotificateurClient $notificateur,
     ) {}
 
     /**
@@ -77,17 +83,29 @@ class IngesteurMail
             return ResultatIngestion::Ignore;
         }
 
-        if ($cas = $this->casDuFil($mail)) {
+        $partenaire = $this->estPartenaire($mail->fromEmail);
+
+        if ($cas = $this->casCorrespondant($mail)) {
             $this->enregistrer($mail, $cas);
+            $cas->refresh();
 
             Log::info('Mail rattaché à un dossier existant', [
                 'cas' => $cas->reference,
                 'message_id' => $mail->messageId,
             ]);
 
-            // Une réponse peut apporter l'info qui manquait (le MHS, la facture) :
-            // on ré-extrait pour compléter le dossier (fusion sans écrasement).
-            $this->extraction->pourCas($cas->refresh());
+            if ($partenaire) {
+                // Lift qui écrit, c'est le dossier qui avance : n° de ticket capté,
+                // statut mis à jour. On ne ré-extrait pas — leurs mails parlent de
+                // RMA et de logistique, pas du matériel du client.
+                $this->suivreLift($cas, $mail);
+
+                return ResultatIngestion::Rattache;
+            }
+
+            // Une réponse du client peut apporter l'info qui manquait (le MHS, la
+            // facture) : on ré-extrait pour compléter le dossier (sans écrasement).
+            $this->extraction->pourCas($cas);
 
             return ResultatIngestion::Rattache;
         }
@@ -99,23 +117,77 @@ class IngesteurMail
             'from' => $mail->fromEmail,
         ]);
 
-        // Extraction hors de la transaction d'écriture (appel réseau lent) et
-        // non bloquante : un échec marque le dossier sans empêcher l'accusé.
+        // Un mail de Lift qu'on n'a pas su rattacher ouvre quand même un dossier
+        // (mieux vaut un dossier à recoller qu'un mail perdu), mais il ne reçoit ni
+        // extraction ni accusé : ce n'est pas une demande client.
+        if ($partenaire) {
+            $this->suivreLift($cas, $mail);
+
+            return ResultatIngestion::NouveauDossier;
+        }
+
+        // Extraction hors de la transaction d'écriture (appel réseau lent) et non
+        // bloquante : un échec marque le dossier sans empêcher l'accusé.
+        //
+        // L'ordre compte : l'accusé part APRÈS l'extraction, car c'est elle qui
+        // détermine ce qu'il reste à réclamer au client. Un accusé envoyé avant
+        // redemanderait des pièces déjà fournies dans le mail qu'on vient de lire.
         $this->extraction->pourCas($cas);
 
-        if (! $this->estPartenaire($mail->fromEmail)) {
-            $this->accuserReception($cas, $mail);
-        }
+        $this->notificateur->accuserReception($cas->refresh(), $mail->messageId);
 
         return ResultatIngestion::NouveauDossier;
     }
 
     /**
+     * Ce qu'un mail de Lift nous apprend : le n° de leur ticket, et le fait
+     * qu'ils ont répondu. C'est là toute la « synchro » : le dossier avance
+     * parce que Lift a écrit, pas parce qu'on a interrogé une API.
+     *
+     * **Le n° de ticket est le seul signal qui fait avancer le statut.** Il est
+     * la preuve que le dossier est bel et bien ouvert chez eux — y compris si
+     * Nico leur a écrit à la main, sans passer par le bouton. Tout autre mail de
+     * Lift ne fait que dater `reponse_lift_le` : « ils ont répondu, à traiter ».
+     * Sans cette règle, n'importe quelle notification Zendesk égarée pousserait
+     * un dossier « Chez Lift » alors qu'il n'y est jamais allé.
+     */
+    private function suivreLift(Cas $cas, MailEntrant $mail): void
+    {
+        $ticket = TicketLift::numero($mail->subject, $mail->bodyText);
+        $ouverture = $ticket !== null && blank($cas->ticket_lift);
+
+        $maj = [];
+
+        if ($ouverture) {
+            $maj['ticket_lift'] = $ticket;
+            $maj['statut'] = StatutCas::AttenteLift;
+        } else {
+            $maj['reponse_lift_le'] = $mail->receivedAt;
+
+            // Leur accusé nous était déjà parvenu : ce mail-ci est une réponse.
+            if ($cas->statut === StatutCas::EnvoyeLift) {
+                $maj['statut'] = StatutCas::AttenteLift;
+            }
+        }
+
+        $cas->forceFill($maj)->save();
+
+        Log::info('Dossier mis à jour par un mail de Lift', [
+            'cas' => $cas->reference,
+            'ticket_lift' => $cas->ticket_lift,
+            'statut' => $cas->statut->value,
+        ]);
+    }
+
+    /**
      * La raison de ne pas traiter ce mail, ou null s'il faut le traiter.
      *
-     * Les mails de Lift et de son Zendesk passent ces gardes : ils alimentent
-     * bien un dossier. C'est plus loin, au moment d'accuser réception, qu'on
-     * les met de côté (voir estPartenaire).
+     * Les mails de Lift et de son Zendesk traversent ces gardes **sans être
+     * inspectés** : leur accusé est précisément une auto-réponse (il peut porter
+     * `Auto-Submitted`, partir d'un `noreply@`, s'intituler « Automatic
+     * reply »…), et c'est lui qui contient le n° de ticket. Le jeter, c'est
+     * perdre le seul canal de synchro qui nous reste depuis que leur API est
+     * fermée. Aucun risque de boucle : on ne répond jamais à un partenaire.
      */
     private function raisonDIgnorer(MailEntrant $mail): ?string
     {
@@ -125,6 +197,10 @@ class IngesteurMail
 
         if ($mail->fromEmail === Str::lower((string) config('sav.mailbox'))) {
             return 'expéditeur = la boîte SAV elle-même';
+        }
+
+        if ($this->estPartenaire($mail->fromEmail)) {
+            return null;
         }
 
         foreach (self::EXPEDITEURS_ROBOTS as $motif) {
@@ -152,6 +228,46 @@ class IngesteurMail
         return null;
     }
 
+    /**
+     * Le dossier auquel ce mail se rattache — par ordre de fiabilité décroissante.
+     *
+     * Le threading (1) suffit pour le client, qui répond à nos mails. Il suffit
+     * même pour Lift, maintenant que le dossier part de l'outil et porte donc
+     * notre Message-ID. Mais Zendesk réécrit parfois les en-têtes, et le mail
+     * peut aussi avoir été envoyé à la main depuis la boîte de Nico : d'où les
+     * repères (2), (3) et (4), qui ne s'appliquent qu'aux mails de Lift. Sur un
+     * mail client, un « #12345 » ne voudrait rien dire.
+     */
+    private function casCorrespondant(MailEntrant $mail): ?Cas
+    {
+        if ($cas = $this->casDuFil($mail)) {
+            return $cas;
+        }
+
+        if (! $this->estPartenaire($mail->fromEmail)) {
+            return null;
+        }
+
+        // (2) Le n° de ticket : Lift le répète dans chacun de ses mails.
+        if ($ticket = TicketLift::numero($mail->subject, $mail->bodyText)) {
+            if ($cas = Cas::where('ticket_lift', $ticket)->first()) {
+                return $cas;
+            }
+        }
+
+        // (3) Notre référence, que le brouillon met entre crochets dans l'objet
+        // et que Zendesk recopie dans ses réponses.
+        if ($reference = SujetMail::reference($mail->subject, $mail->bodyText)) {
+            if ($cas = Cas::where('reference', $reference)->first()) {
+                return $cas;
+            }
+        }
+
+        // (4) Le noyau de l'objet, dépouillé des « Re: », des crochets et du
+        // n° de ticket. Dernier repli, borné aux dossiers encore vivants.
+        return $this->casParSujet($mail->subject);
+    }
+
     /** Le dossier auquel ce mail répond, s'il répond à un mail que l'on connaît. */
     private function casDuFil(MailEntrant $mail): ?Cas
     {
@@ -165,6 +281,38 @@ class IngesteurMail
             ->latest('received_at')
             ->first()
             ?->cas;
+    }
+
+    /**
+     * Le dossier dont un message porte le même objet, au bruit près.
+     *
+     * Comparé en PHP et non en SQL : la normalisation (préfixes, crochets, n° de
+     * ticket) n'a pas d'équivalent portable entre SQLite et PostgreSQL. À
+     * quelques dizaines de dossiers par mois, la centaine de sujets qu'on relit
+     * ici ne coûte rien.
+     */
+    private function casParSujet(?string $sujet): ?Cas
+    {
+        $noyau = SujetMail::noyau($sujet);
+
+        if ($noyau === '') {
+            return null;
+        }
+
+        $messages = Message::query()
+            ->whereHas('cas', fn (Builder $query) => $query->where('statut', '!=', StatutCas::Clos->value))
+            ->whereNotNull('subject')
+            ->latest('received_at')
+            ->limit(200)
+            ->get(['id', 'cas_id', 'subject']);
+
+        foreach ($messages as $message) {
+            if (SujetMail::noyau($message->subject) === $noyau) {
+                return $message->cas;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -299,69 +447,8 @@ class IngesteurMail
         }
     }
 
-    /** Lift et son Zendesk nourrissent les dossiers, mais ne reçoivent pas d'accusé. */
     private function estPartenaire(string $email): bool
     {
-        foreach ((array) config('sav.expediteurs_partenaires', []) as $domaine) {
-            if (str_contains($email, Str::lower((string) $domaine))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Envoi en ligne, hors transaction : un mail parti ne se rembobine pas.
-     *
-     * Passe par l'Expediteur, seul juge de si le mail part réellement (garde-fou
-     * SAV_ENVOI_ACTIF). Tant que l'envoi est désactivé, l'accusé est simulé et
-     * on n'enregistre AUCUN message sortant : le dossier reste « vierge d'accusé »,
-     * de sorte qu'au go-live le client reçoive bien son premier accusé.
-     *
-     * Si le SMTP est en panne, le dossier reste — c'est l'accusé qui saute. On
-     * le journalise : mieux vaut un client sans accusé qu'un dossier perdu.
-     */
-    private function accuserReception(Cas $cas, MailEntrant $mail): void
-    {
-        $messageId = MessageId::genererPourSortant($this->domaineExpediteur());
-        $accuse = new AccuseReceptionMail($cas, $messageId, $mail->messageId);
-
-        try {
-            $parti = $this->expediteur->envoyer((string) $cas->client_email, $accuse);
-        } catch (Throwable $e) {
-            Log::error("Accusé de réception non envoyé pour {$cas->reference}", [
-                'destinataire' => $cas->client_email,
-                'exception' => $e->getMessage(),
-            ]);
-
-            return;
-        }
-
-        // Envoi simulé (SAV_ENVOI_ACTIF=false) : rien n'est parti, rien à tracer.
-        if (! $parti) {
-            return;
-        }
-
-        $cas->messages()->create([
-            'message_id' => $messageId,
-            'in_reply_to' => $mail->messageId,
-            'email_references' => $mail->messageId,
-            'direction' => DirectionMessage::Outbound,
-            'from_email' => (string) config('mail.from.address'),
-            'from_name' => config('mail.from.name'),
-            'to_email' => $cas->client_email,
-            'subject' => $accuse->envelope()->subject,
-            'body_text' => "Accusé de réception automatique du dossier {$cas->reference}.",
-            'body_html' => rescue(fn () => $accuse->render(), report: false),
-            'received_at' => now(),
-        ]);
-    }
-
-    private function domaineExpediteur(): string
-    {
-        $adresse = (string) (config('mail.from.address') ?: config('sav.mailbox'));
-
-        return str_contains($adresse, '@') ? Str::after($adresse, '@') : 'liftfoils.fr';
+        return Partenaires::est($email);
     }
 }

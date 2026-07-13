@@ -4,6 +4,8 @@ namespace App\Filament\Resources\Cas\Schemas;
 
 use App\Enums\StatutCas;
 use App\Models\Cas;
+use App\Services\Dossier\Exigence;
+use App\Services\Dossier\RegleCompletude;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -15,29 +17,20 @@ use Illuminate\Support\HtmlString;
 
 class CasForm
 {
+    /**
+     * Les trois états d'une pièce qu'un humain seul peut trancher. `null` (le
+     * placeholder du Select) laisse la présomption faire son travail.
+     */
+    private const ETATS_PIECE = [
+        1 => 'Fournie',
+        0 => 'Absente ou illisible',
+    ];
+
     public static function configure(Schema $schema): Schema
     {
         return $schema
             ->components([
-                Section::make('Dossier')
-                    ->columns(3)
-                    ->schema([
-                        TextInput::make('reference')
-                            ->label('Référence')
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(255),
-                        Select::make('statut')
-                            ->label('Statut')
-                            ->options(StatutCas::class)
-                            ->default(StatutCas::Nouveau->value)
-                            ->selectablePlaceholder(false)
-                            ->required(),
-                        TextInput::make('source')
-                            ->label('Source')
-                            ->default('email')
-                            ->required()
-                            ->maxLength(255),
-                    ]),
+                static::bandeau(),
 
                 Section::make('Client')
                     ->columns(3)
@@ -72,14 +65,31 @@ class CasForm
                         TextInput::make('sales_order')
                             ->label('Sales Order')
                             ->maxLength(255),
+                        TextInput::make('date_achat')
+                            ->label('Date d\'achat')
+                            ->helperText('Telle qu\'annoncée par le client. Indice de garantie — l\'humain tranche.')
+                            ->maxLength(255),
                         Toggle::make('urgent')
                             ->label('Urgent')
-                            ->helperText('Signalé par l\'IA ou coché à la main. L\'humain tranche.'),
-                        Toggle::make('complet')
-                            ->label('Dossier complet (actionnable)')
-                            ->helperText('Produit + numéro de série présents.')
-                            ->disabled()
-                            ->dehydrated(false),
+                            ->helperText('Signalé par l\'IA ou coché à la main.'),
+                    ]),
+
+                Section::make('Pièces du dossier')
+                    ->description('Par défaut, l\'outil présume d\'après les pièces jointes. Vous seul pouvez dire si l\'étiquette est LISIBLE et si les photos montrent bien le défaut : tranchez ici, et le dossier change de vue en conséquence.')
+                    ->columns(3)
+                    ->schema([
+                        Select::make('photo_etiquette')
+                            ->label('Photo de l\'étiquette MHS')
+                            ->options(self::ETATS_PIECE)
+                            ->placeholder(fn (?Cas $record): string => static::presomption($record?->aPhotoEtiquette())),
+                        Select::make('preuve_achat')
+                            ->label('Facture ou Sales Order')
+                            ->options(self::ETATS_PIECE)
+                            ->placeholder(fn (?Cas $record): string => static::presomption($record?->aPreuveAchat())),
+                        Select::make('photos_defaut')
+                            ->label('Photos / vidéos du défaut')
+                            ->options(self::ETATS_PIECE)
+                            ->placeholder(fn (?Cas $record): string => static::presomption($record?->aPhotosDefaut())),
                     ]),
 
                 Section::make('Demande')
@@ -100,7 +110,7 @@ class CasForm
                     ->schema([
                         TextInput::make('ticket_lift')
                             ->label('Ticket Lift')
-                            ->helperText('N° du ticket Zendesk chez Lift, saisi à la main.')
+                            ->helperText('Capté automatiquement dans l\'accusé de Lift. Saisissable à la main s\'il manque.')
                             ->maxLength(255),
                         TextInput::make('statut_lift')
                             ->label('Statut chez Lift')
@@ -114,12 +124,12 @@ class CasForm
                             ->content(fn (?Cas $record): HtmlString => new HtmlString(
                                 $record?->lienPortailZendesk()
                                     ? '<a href="'.e($record->lienPortailZendesk()).'" target="_blank" rel="noopener" class="text-primary-600 underline">Ouvrir le ticket ↗</a>'
-                                    : '<span class="text-gray-400">— (renseigner le n° de ticket)</span>',
+                                    : '<span class="text-gray-400">— (aucun n° de ticket)</span>',
                             )),
                     ]),
 
                 Section::make('Brouillon Lift (anglais)')
-                    ->description('Généré par l\'IA à partir du dossier. JAMAIS envoyé automatiquement : à relire, puis copier vers '.config('sav.lift.email').'. Bouton « Générer le brouillon Lift » en haut de page.')
+                    ->description('Généré par l\'IA à partir du dossier. Il ne part que si vous cliquez « Envoyer à Lift », et seulement si le dossier est complet.')
                     ->collapsible()
                     ->schema([
                         Textarea::make('brouillon_lift')
@@ -128,6 +138,86 @@ class CasForm
                             ->columnSpanFull()
                             ->placeholder('Aucun brouillon. Utilisez « Générer le brouillon Lift ».'),
                     ]),
+
+                Section::make('Dossier')
+                    ->columns(3)
+                    ->collapsed()
+                    ->schema([
+                        TextInput::make('reference')
+                            ->label('Référence')
+                            ->unique(ignoreRecord: true)
+                            ->maxLength(255),
+                        Select::make('statut')
+                            ->label('Statut interne')
+                            ->options(StatutCas::class)
+                            ->default(StatutCas::Nouveau->value)
+                            ->selectablePlaceholder(false)
+                            ->required(),
+                        TextInput::make('source')
+                            ->label('Source')
+                            ->default('email')
+                            ->required()
+                            ->maxLength(255),
+                    ]),
             ]);
+    }
+
+    /**
+     * Le bandeau qui ouvre la fiche : ce qu'il faut faire, et ce qui manque pour
+     * le faire. Deux phrases, en haut, avant tout formulaire — plus besoin de
+     * lire le dossier pour savoir quoi en faire.
+     */
+    private static function bandeau(): Section
+    {
+        return Section::make()
+            ->hiddenOn('create')
+            ->columns(2)
+            ->schema([
+                Placeholder::make('prochaine_action')
+                    ->label('Prochaine action')
+                    ->content(fn (?Cas $record): HtmlString => new HtmlString(
+                        '<span class="text-base font-semibold">'.e($record?->prochaineAction() ?? '—').'</span>',
+                    )),
+                Placeholder::make('ce_qui_manque')
+                    ->label('Ce qui manque')
+                    ->content(fn (?Cas $record): HtmlString => static::listeManquants($record)),
+            ]);
+    }
+
+    /**
+     * Ce qui manque, champ par champ — et non un badge « incomplet » qui
+     * n'apprend rien. Le bloquant en rouge, le souhaitable en gris : la
+     * distinction est celle de RegleCompletude, pas une couleur choisie ici.
+     */
+    private static function listeManquants(?Cas $record): HtmlString
+    {
+        if ($record === null) {
+            return new HtmlString('—');
+        }
+
+        $manquants = RegleCompletude::manquants($record);
+
+        if ($manquants === []) {
+            return new HtmlString('<span class="text-success-600 font-medium">Rien. Le dossier est complet.</span>');
+        }
+
+        $lignes = array_map(
+            fn (Exigence $exigence): string => sprintf(
+                '<li class="%s">%s %s</li>',
+                $exigence->bloquante ? 'text-danger-600 font-medium' : 'text-gray-500',
+                $exigence->bloquante ? '&#10007;' : '&#8226;',
+                e($exigence->libelle).($exigence->bloquante ? '' : ' <span class="text-xs">(souhaitable)</span>'),
+            ),
+            $manquants,
+        );
+
+        return new HtmlString('<ul class="space-y-1">'.implode('', $lignes).'</ul>');
+    }
+
+    private static function presomption(?bool $presumee): string
+    {
+        return $presumee === true
+            ? 'Automatique : présumée fournie'
+            : 'Automatique : présumée absente';
     }
 }

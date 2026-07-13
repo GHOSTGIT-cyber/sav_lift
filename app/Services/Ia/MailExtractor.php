@@ -20,6 +20,7 @@ interface MailExtractor
      *     modele: ?string,
      *     mhs: ?string,
      *     sales_order: ?string,
+     *     date_achat: ?string,
      *     contexte: ?string,
      *     urgent: bool,
      * }

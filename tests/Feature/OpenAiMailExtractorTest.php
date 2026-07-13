@@ -48,7 +48,8 @@ class OpenAiMailExtractorTest extends TestCase
     {
         Http::fake(['*' => Http::response($this->reponse($this->jsonExtraction([
             'produit' => 'batterie', 'modele' => 'Lift4', 'mhs' => 'MHS-123456',
-            'sales_order' => 'SO-98765', 'contexte' => 'choc puis plus de charge', 'urgent' => true,
+            'sales_order' => 'SO-98765', 'date_achat' => '12/03/2025',
+            'contexte' => 'choc puis plus de charge', 'urgent' => true,
         ])))]);
 
         $this->assertSame([
@@ -56,9 +57,10 @@ class OpenAiMailExtractorTest extends TestCase
             'modele' => 'Lift4',
             'mhs' => 'MHS-123456',
             'sales_order' => 'SO-98765',
+            'date_achat' => '12/03/2025',
             'contexte' => 'choc puis plus de charge',
             'urgent' => true,
-        ], $this->extractor()->extract('Ma batterie Lift4, MHS-123456, ne charge plus après un choc.'));
+        ], $this->extractor()->extract('Ma batterie Lift4, MHS-123456, achetée le 12/03/2025, ne charge plus après un choc.'));
     }
 
     public function test_les_champs_absents_reviennent_null(): void
