@@ -139,16 +139,26 @@ return [
 
     'ia' => [
 
-        'cle' => env('SAV_IA_CLE', env('OPENROUTER_API_KEY', env('XAI_API_KEY'))),
+        'cle' => env('SAV_IA_CLE', env('OPENROUTER_API_KEY', env('GROQ_API_KEY'))),
 
+        // Tout fournisseur parlant « chat/completions » convient. Repli tout prêt
+        // si le gratuit d'OpenRouter se tarit — Groq, gratuit et généreux :
+        //   SAV_IA_URL=https://api.groq.com/openai/v1/chat/completions
+        //   SAV_IA_MODELE=llama-3.3-70b-versatile
+        // Basculer = changer ces deux variables d'env + la clé. Zéro code.
         'url' => env('SAV_IA_URL', 'https://openrouter.ai/api/v1/chat/completions'),
 
-        // Modèle **gratuit** (0 $ en entrée comme en sortie) et capable de sortie
-        // JSON structurée, vérifié sur l'API publique d'OpenRouter. Qwen3 est
-        // choisi pour sa solidité en français (les mails clients le sont).
-        // Replis équivalents : openai/gpt-oss-20b:free, google/gemma-4-26b-a4b-it:free.
-        // ⚠️ Les modèles « :free » vont et viennent — revérifier si un 404 apparaît.
-        'modele' => env('SAV_IA_MODELE', 'qwen/qwen3-next-80b-a3b-instruct:free'),
+        // Modèle **gratuit** (0 $ en entrée comme en sortie), comparé sur un vrai
+        // mail SAV français : Gemma est le seul à tout extraire juste (catégorie
+        // produit ET modèle ET MHS verbatim). Les autres confondent produit et
+        // modèle — ce qui n'est plus anodin depuis que l'accusé de réception
+        // réclame au client ce que l'extraction n'a pas trouvé.
+        //
+        // Écartés, mesurés : qwen3-next (429, saturé chez le fournisseur),
+        // gpt-oss-20b et nemotron-nano (produit = « Lift4 »), nemotron-3-super
+        // (sort du charabia). ⚠️ Les « :free » vont et viennent : en cas de 404
+        // ou de 429 persistant, relister via https://openrouter.ai/api/v1/models.
+        'modele' => env('SAV_IA_MODELE', 'google/gemma-4-26b-a4b-it:free'),
 
         'timeout' => (int) env('SAV_IA_TIMEOUT', 30),
 
