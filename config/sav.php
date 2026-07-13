@@ -212,4 +212,31 @@ return [
         'sync_active' => (bool) env('SAV_ZENDESK_SYNC', false),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Mode démonstration (Bloc 4-bis)
+    |--------------------------------------------------------------------------
+    |
+    | Une instance publique, SANS MOT DE PASSE, peuplée de dossiers fictifs, pour
+    | montrer l'outil sans donner d'accès à la production.
+    |
+    | ⚠️ Ce drapeau ne suffit pas à lui seul, et c'est délibéré : App\Support\ModeDemo
+    | exige EN PLUS que l'instance soit incapable de toucher au monde réel (aucun
+    | mot de passe IMAP, aucun envoi possible). Sans quoi le mode démo se refuse.
+    | Le même code tourne en prod : une faute de frappe dans les variables d'env ne
+    | doit jamais y ouvrir le panneau à tout Internet.
+    |
+    | Ne JAMAIS mettre SAV_DEMO=true sur l'app de production.
+    |
+    */
+
+    'demo' => [
+
+        'actif' => (bool) env('SAV_DEMO', false),
+
+        // Le compte sous lequel le visiteur est connecté d'office. Créé par
+        // Database\Seeders\DemoSeeder ; sans mot de passe utilisable.
+        'email' => env('SAV_DEMO_EMAIL', 'demo@liftfoils.fr'),
+    ],
+
 ];

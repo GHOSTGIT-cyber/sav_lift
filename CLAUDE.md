@@ -96,6 +96,21 @@ piloté par la config `sav.ia`. **Une seule classe touche le fournisseur** : `Ap
 utilisée par `OpenAiMailExtractor` (extraction, verbatim-ou-null) et `RedacteurLift` (brouillon EN).
 Clé en env uniquement ; sans clé, IA désactivée (dossiers créés, non enrichis).
 
+### Instance de démonstration (voir `docs/demo.md`)
+Une **deuxième app Coolify**, publique, **sans mot de passe**, peuplée de dossiers fictifs — pour
+montrer l'outil sans donner accès aux vrais dossiers. Ce n'est **pas une branche** : elle déploie
+`main`, et ne se distingue que par ses variables d'env (base dédiée, aucun identifiant IMAP,
+aucun envoi).
+
+⚠️ Le code de l'accès sans mot de passe vit dans `main`, donc **dans la même image que la prod**.
+D'où la règle, portée par `App\Support\ModeDemo` : `SAV_DEMO=true` **ne suffit pas**. Le mode démo
+exige EN PLUS que l'instance soit incapable de toucher au monde réel — **aucun `IMAP_PASSWORD`**
+(sinon elle pourrait relever de vrais mails) et **`SAV_ENVOI_ACTIF=false`** (sinon elle pourrait
+écrire à de vraies personnes). Si l'une manque, le mode démo se refuse et le panneau réclame un mot
+de passe, comme en prod. *Fail closed.* **Ne jamais mettre `SAV_DEMO=true` sur l'app de production.**
+
+Entretien : `php artisan sav:demo --reset` (refuse de tourner hors mode démo).
+
 ### Garde-fou d'envoi (Bloc 3-B)
 `SAV_ENVOI_ACTIF` (défaut `false`) au-dessus de **tout** envoi, en un seul point
 (`App\Services\Mail\Expediteur`). À `false`, rien ne part : envoi simulé + journalisé — et le dossier

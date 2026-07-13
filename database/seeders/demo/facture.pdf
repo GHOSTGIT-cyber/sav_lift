@@ -1,0 +1,66 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 427 >>
+stream
+BT
+/F1 20 Tf
+60 760 Td
+(EFOIL COTE D'AZUR — FACTURE) Tj
+ET
+BT
+/F1 11 Tf
+60 730 Td
+(Facture n. FA-2024-0187   —   12/03/2024) Tj
+ET
+BT
+/F1 11 Tf
+60 700 Td
+(Client : Sophie Martin) Tj
+ET
+BT
+/F1 11 Tf
+60 680 Td
+(Lift4 eFoil — MHS-240118-0042) Tj
+ET
+BT
+/F1 11 Tf
+60 660 Td
+(Sales Order : SO-98765) Tj
+ET
+BT
+/F1 11 Tf
+60 640 Td
+(Total TTC : 12 900,00 EUR) Tj
+ET
+BT
+/F1 13 Tf
+60 590 Td
+(DEMONSTRATION — document fictif) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000719 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+789
+%%EOF
