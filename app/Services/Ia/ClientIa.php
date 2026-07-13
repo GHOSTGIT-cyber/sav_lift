@@ -2,7 +2,9 @@
 
 namespace App\Services\Ia;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -52,7 +54,10 @@ final class ClientIa
             $reponse = $this->http
                 ->withHeaders($this->entetes($cle))
                 ->timeout((int) config('sav.ia.timeout', 30))
-                ->retry(2, 500, throw: false)
+                // On ne re-tente QUE sur une panne réseau ou un 5xx. Surtout pas
+                // sur un 429 : le palier gratuit est plafonné (50 requêtes/jour),
+                // re-tenter un quota épuisé le brûlerait deux fois pour rien.
+                ->retry(2, 500, when: $this->reessayable(...), throw: false)
                 ->post((string) config('sav.ia.url'), $charge);
         } catch (Throwable $e) {
             throw new ExtractionException('Appel IA impossible : '.$e->getMessage(), previous: $e);
@@ -65,6 +70,22 @@ final class ClientIa
         }
 
         return $this->contenu($reponse->json());
+    }
+
+    /**
+     * Cette erreur mérite-t-elle une seconde tentative ?
+     *
+     * Oui pour une coupure réseau ou une panne serveur (5xx) — transitoires.
+     * Non pour un 429 (quota gratuit épuisé) ni un 4xx (clé invalide, modèle
+     * inconnu) : re-tenter ne ferait que consommer un appel de plus.
+     */
+    private function reessayable(Throwable $e): bool
+    {
+        if ($e instanceof ConnectionException) {
+            return true;
+        }
+
+        return $e instanceof RequestException && (bool) $e->response?->serverError();
     }
 
     /** @return array<string, string> */

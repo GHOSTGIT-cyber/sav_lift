@@ -85,6 +85,46 @@ class ExtractionCommandsTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * Un quota gratuit épuisé (429) ne doit pas enterrer le dossier : le
+     * backfill suivant doit le reprendre.
+     */
+    public function test_backfill_reprend_un_dossier_en_echec(): void
+    {
+        $this->dossierAvecMail('SAV-2026-0001', 'Batterie MHS-1');
+
+        // Un SEUL fake, piloté par un état : deux Http::fake() successifs
+        // s'empilent (c'est le premier stub qui gagne), ils ne se remplacent pas.
+        $quotaEpuise = true;
+        Http::fake(function () use (&$quotaEpuise) {
+            return $quotaEpuise
+                ? Http::response(['error' => 'rate limit exceeded'], 429)
+                : Http::response(['choices' => [['message' => ['content' => json_encode([
+                    'produit' => 'batterie', 'modele' => null, 'mhs' => 'MHS-1',
+                    'sales_order' => null, 'contexte' => null, 'urgent' => false,
+                ])]]]]);
+        });
+
+        // 1er passage : quota dépassé → échec, mais le dossier reste « à extraire ».
+        $this->artisan('sav:extract-backfill')->assertSuccessful();
+
+        $cas = Cas::sole();
+        $this->assertNotNull($cas->extraction_erreur);
+        $this->assertNull($cas->extrait_le);
+
+        // Un 429 ne doit PAS être re-tenté : une seule requête consommée.
+        Http::assertSentCount(1);
+
+        // 2e passage, quota revenu : le dossier est repris sans --tous.
+        $quotaEpuise = false;
+        $this->artisan('sav:extract-backfill')->assertSuccessful();
+
+        $cas->refresh();
+        $this->assertSame('batterie', $cas->produit);
+        $this->assertNotNull($cas->extrait_le);
+        $this->assertNull($cas->extraction_erreur);
+    }
+
     public function test_backfill_desactive_sans_cle(): void
     {
         config()->set('sav.ia.cle', '');

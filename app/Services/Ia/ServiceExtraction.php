@@ -40,31 +40,16 @@ class ServiceExtraction
         try {
             $donnees = $this->extractor->extract($cas->contenuPourExtraction());
         } catch (ExtractionException $e) {
-            $cas->forceFill([
-                'extraction_erreur' => $e->getMessage(),
-                'extrait_le' => now(),
-            ])->save();
-
-            Log::warning('Extraction IA échouée', [
-                'cas' => $cas->reference,
-                'erreur' => $e->getMessage(),
-            ]);
-
-            return ResultatExtraction::Echec;
+            return $this->echec($cas, $e->getMessage());
         } catch (Throwable $e) {
             // Filet de dernier recours : jamais laisser une exception inattendue
             // remonter dans la relève.
-            $cas->forceFill([
-                'extraction_erreur' => 'Erreur inattendue : '.$e->getMessage(),
-                'extrait_le' => now(),
-            ])->save();
-
             Log::error('Extraction IA : erreur inattendue', [
                 'cas' => $cas->reference,
                 'exception' => $e->getMessage(),
             ]);
 
-            return ResultatExtraction::Echec;
+            return $this->echec($cas, 'Erreur inattendue : '.$e->getMessage());
         }
 
         $cas->appliquerExtraction($donnees);
@@ -76,5 +61,26 @@ class ServiceExtraction
         ]);
 
         return ResultatExtraction::Enrichi;
+    }
+
+    /**
+     * Marque l'échec **sans** poser `extrait_le`.
+     *
+     * C'est délibéré : `extrait_le` signifie « extrait avec succès ». En le
+     * laissant null, `sav:extract-backfill` (qui ne prend que les dossiers non
+     * extraits) **reprendra tout seul** les dossiers en échec au prochain
+     * passage. Décisif avec un quota gratuit : un 429 « trop de requêtes
+     * aujourd'hui » n'enterre pas définitivement le dossier.
+     */
+    private function echec(Cas $cas, string $message): ResultatExtraction
+    {
+        $cas->forceFill(['extraction_erreur' => $message])->save();
+
+        Log::warning('Extraction IA échouée', [
+            'cas' => $cas->reference,
+            'erreur' => $message,
+        ]);
+
+        return ResultatExtraction::Echec;
     }
 }

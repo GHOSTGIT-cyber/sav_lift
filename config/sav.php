@@ -143,9 +143,12 @@ return [
 
         'url' => env('SAV_IA_URL', 'https://openrouter.ai/api/v1/chat/completions'),
 
-        // ⚠️ À confirmer sur openrouter.ai/models (filtre « free ») : le nom exact
-        // d'un modèle gratuit peut évoluer. Grok « fast » gratuit par défaut.
-        'modele' => env('SAV_IA_MODELE', 'x-ai/grok-4-fast:free'),
+        // Modèle **gratuit** (0 $ en entrée comme en sortie) et capable de sortie
+        // JSON structurée, vérifié sur l'API publique d'OpenRouter. Qwen3 est
+        // choisi pour sa solidité en français (les mails clients le sont).
+        // Replis équivalents : openai/gpt-oss-20b:free, google/gemma-4-26b-a4b-it:free.
+        // ⚠️ Les modèles « :free » vont et viennent — revérifier si un 404 apparaît.
+        'modele' => env('SAV_IA_MODELE', 'qwen/qwen3-next-80b-a3b-instruct:free'),
 
         'timeout' => (int) env('SAV_IA_TIMEOUT', 30),
 

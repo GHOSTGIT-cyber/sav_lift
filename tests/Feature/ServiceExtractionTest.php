@@ -110,6 +110,10 @@ class ServiceExtractionTest extends TestCase
         $cas->refresh();
         $this->assertStringContainsString('API HS', (string) $cas->extraction_erreur);
         $this->assertFalse($cas->complet);
+
+        // `extrait_le` reste null : le dossier reste « à extraire », donc le
+        // backfill le reprendra. Décisif avec un quota gratuit (429).
+        $this->assertNull($cas->extrait_le);
     }
 
     protected function tearDown(): void
