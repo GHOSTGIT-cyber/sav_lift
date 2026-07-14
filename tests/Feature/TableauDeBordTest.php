@@ -135,6 +135,52 @@ class TableauDeBordTest extends TestCase
             ->assertSee('Relire et envoyer à Lift');
     }
 
+    /**
+     * On SUIT le lien du widget, on ne suppose pas son contenu.
+     *
+     * Le paramètre d'URL de l'onglet s'appelle `tab` (Filament l'expose ainsi).
+     * S'en écarter ne casse rien bruyamment : la page s'ouvre quand même, mais sur
+     * l'onglet par défaut — donc TOUTES les tuiles du tableau de bord menaient à
+     * « À compléter », en silence. Ce test refait le trajet complet, de la tuile
+     * cliquée aux dossiers affichés.
+     */
+    public function test_chaque_tuile_du_tableau_de_bord_ouvre_vraiment_sa_vue(): void
+    {
+        $aCompleter = Cas::create(['reference' => 'SAV-2026-0001', 'client_nom' => 'Incomplet']);
+        $aValider = $this->dossierComplet('SAV-2026-0002');
+        $clos = Cas::create(['reference' => 'SAV-2026-0003', 'statut' => StatutCas::Clos]);
+
+        $html = Livewire::test(FilesDattente::class)->html();
+
+        $attendus = [
+            [VueDossier::AComplete, $aCompleter, [$aValider, $clos]],
+            [VueDossier::AValider, $aValider, [$aCompleter, $clos]],
+            [VueDossier::Clos, $clos, [$aCompleter, $aValider]],
+        ];
+
+        foreach ($attendus as [$vue, $dedans, $dehors]) {
+            // 1. On lit le lien que la tuile rend VRAIMENT — on ne le reconstruit pas.
+            $trouve = preg_match(
+                '/href="([^"]*'.preg_quote($vue->value, '/').'[^"]*)"/',
+                $html,
+                $lien,
+            );
+
+            $this->assertSame(1, $trouve, "La tuile « {$vue->getLabel()} » ne pointe vers rien.");
+
+            parse_str(
+                (string) parse_url(html_entity_decode($lien[1]), PHP_URL_QUERY),
+                $parametres,
+            );
+
+            // 2. Et on vérifie que ce lien-là ouvre bien sa file, et elle seule.
+            Livewire::withQueryParams($parametres)
+                ->test(ListCas::class)
+                ->assertCanSeeTableRecords([$dedans])
+                ->assertCanNotSeeTableRecords($dehors);
+        }
+    }
+
     /** La fiche ouvre sur l'instruction, pas sur un formulaire nu. */
     public function test_la_fiche_ouvre_sur_la_prochaine_action(): void
     {

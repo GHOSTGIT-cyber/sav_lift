@@ -30,7 +30,11 @@ class FilesDattente extends StatsOverviewWidget
             )
                 ->description($vue->resume())
                 ->color($vue->getColor())
-                ->url(CasResource::getUrl('index', ['activeTab' => $vue->value])),
+                // Le paramètre s'appelle `tab`, et pas `activeTab` : c'est le nom
+                // que Filament expose dans l'URL (#[Url(as: 'tab')] sur ListRecords).
+                // Se tromper ici ne casse rien bruyamment — la page s'ouvre, mais
+                // toujours sur l'onglet par défaut. D'où le test qui suit ce lien.
+                ->url(CasResource::getUrl('index', ['tab' => $vue->value])),
             VueDossier::cases(),
         );
     }
